@@ -1,0 +1,6 @@
+{
+  "name": "FlashGame.Prototype",
+  "rootNamespace": "FlashGame",
+  "references": ["Unity.InputSystem"],
+  "autoReferenced": true
+}

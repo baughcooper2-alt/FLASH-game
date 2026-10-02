@@ -1,0 +1,7 @@
+{
+  "name": "FlashGame.Prototype.Tests",
+  "references": ["FlashGame.Prototype"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "autoReferenced": false
+}
