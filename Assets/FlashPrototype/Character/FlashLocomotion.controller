@@ -117,7 +117,7 @@ BlendTree:
   m_Name: Idle Walk Run
   m_Childs:
   - serializedVersion: 2
-    m_Motion: {fileID: -203655887218126122, guid: 343e2480fbd1c4c50b1cf02f05076eea, type: 3}
+    m_Motion: {fileID: 7400000, guid: 4489b48b806434afe8c3a04455cf7d62, type: 2}
     m_Threshold: 0
     m_Position: {x: 0, y: 0}
     m_TimeScale: 1
@@ -133,7 +133,7 @@ BlendTree:
     m_DirectBlendParameter: Blend
     m_Mirror: 0
   - serializedVersion: 2
-    m_Motion: {fileID: -203655887218126122, guid: 9b5c7ecd5007f4acca89d7d17477c038, type: 3}
+    m_Motion: {fileID: -623603649343465320, guid: 9b5c7ecd5007f4acca89d7d17477c038, type: 3}
     m_Threshold: 7
     m_Position: {x: 0, y: 0}
     m_TimeScale: 1

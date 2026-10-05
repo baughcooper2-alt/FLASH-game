@@ -40,19 +40,34 @@ public static class FlashRealisticSetup
         importer.animationType = ModelImporterAnimationType.Human;
         importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
         importer.importAnimation = true;
+        importer.animationCompression = ModelImporterAnimationCompression.Off;
+        // Start from the file's own pose (Tools/Blender/fix_mixamo_clip.py writes the T-pose), not a saved one.
+        var description = importer.humanDescription;
+        description.human = new HumanBone[0]; description.skeleton = new SkeletonBone[0];
+        importer.humanDescription = description;
         var clips = importer.defaultClipAnimations;
         foreach (var clip in clips)
         {
             clip.name = "Running";
+            // Frame 0 is the T-pose reference added by fix_mixamo_clip.py; the run starts one frame later.
+            clip.firstFrame += 1;
             clip.loopTime = true; clip.loopPose = true;
-            clip.lockRootRotation = true; clip.lockRootPositionXZ = true; clip.lockRootHeightY = true;
-            clip.keepOriginalOrientation = true; clip.keepOriginalPositionXZ = true; clip.keepOriginalPositionY = true;
+            // The clip travels 3.2 m per stride. Leaving XZ out of the pose (based on the centre of mass) lets the
+            // Animator discard that travel and any side-to-side drift, so the body runs straight on the spot.
+            clip.lockRootRotation = true; clip.keepOriginalOrientation = false;
+            clip.lockRootPositionXZ = false; clip.keepOriginalPositionXZ = false;
+            // Height from the feet keeps the stride on the ground; "Original" floated him 25 cm up.
+            clip.lockRootHeightY = true; clip.keepOriginalPositionY = false; clip.heightFromFeet = true;
         }
         importer.clipAnimations = clips;
         importer.SaveAndReimport();
         var running = AssetDatabase.LoadAllAssetsAtPath(path).OfType<AnimationClip>().First(c => !c.name.StartsWith("__preview__"));
         var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(Root + "FlashLocomotion.controller");
-        var blend = (BlendTree)controller.layers[0].stateMachine.states.First(s => s.state.name == "Locomotion").state.motion;
+        var locomotion = controller.layers[0].stateMachine.states.First(s => s.state.name == "Locomotion").state;
+        // No foot IK: the authored idle has no IK goal curves, and with the ankles placed anatomically the
+        // retargeted feet already land where the clips put them.
+        locomotion.iKOnFeet = false;
+        var blend = (BlendTree)locomotion.motion;
         var children = blend.children;
         children[children.Length - 1].motion = running;
         blend.children = children;
@@ -62,11 +77,29 @@ public static class FlashRealisticSetup
         return running;
     }
 
+    // The stand, walk and jump clips share the HatchXR rig's avatar, whose reference pose has splayed legs.
+    public static void ConfigureLegacyClips()
+    {
+        HumanoidTPose.Enforce(Root + "Flash.fbx");
+        foreach (var name in new[] { "stand", "walk", "run", "jumpUp", "jumpDown" })
+        {
+            string path = Root + "Animations/" + name + ".fbx";
+            var importer = (ModelImporter)AssetImporter.GetAtPath(path);
+            if (name == "walk")
+            {
+                var clips = importer.clipAnimations;
+                foreach (var clip in clips) { clip.lockRootPositionXZ = false; clip.keepOriginalPositionXZ = false; clip.keepOriginalOrientation = false; }
+                importer.clipAnimations = clips;
+            }
+            importer.SaveAndReimport();
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+        }
+    }
+
     [MenuItem("Flash/Configure realistic character")]
     public static void Configure()
     {
         if (EditorApplication.isPlaying) throw new System.InvalidOperationException("Stop Play Mode first.");
-        ConfigureRun();
         if (!AssetDatabase.IsValidFolder(Folder + "Materials")) AssetDatabase.CreateFolder(Folder.TrimEnd('/'), "Materials");
         string fbx = Folder + "FlashRealistic.fbx";
         // Materials first: reimporting their textures reloads importers, which would drop unsaved model settings.
@@ -82,6 +115,10 @@ public static class FlashRealisticSetup
         importer.SaveAndReimport();
         var avatar = AssetDatabase.LoadAllAssetsAtPath(fbx).OfType<Avatar>().First();
         if (!avatar.isValid || !avatar.isHuman) throw new System.InvalidOperationException("Realistic Flash avatar is not a valid Humanoid.");
+        // Every avatar's reference pose is matched to the Mixamo T-pose carried by the Running clip.
+        ConfigureRun();
+        HumanoidTPose.Enforce(fbx);
+        ConfigureLegacyClips();
 
         var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(Root + "FlashLocomotion.controller");
         var stand = AssetDatabase.LoadAllAssetsAtPath(Root + "Animations/stand.fbx").OfType<AnimationClip>().First(c => !c.name.StartsWith("__preview__"));
@@ -112,6 +149,14 @@ public static class FlashRealisticSetup
             meshes = renderers.Length;
         }
         finally { Object.DestroyImmediate(root); }
+        // A natural standing idle replaces the stylised HatchXR stand in the locomotion blend.
+        var idle = IdleClipBuilder.Build(prefab);
+        var idleBlend = (BlendTree)controller.layers[0].stateMachine.states.First(s => s.state.name == "Locomotion").state.motion;
+        var idleChildren = idleBlend.children;
+        idleChildren[0].motion = idle;
+        idleBlend.children = idleChildren;
+        EditorUtility.SetDirty(idleBlend); EditorUtility.SetDirty(controller);
+        AssetDatabase.SaveAssets();
         // The temporary build object is gone before the scene is saved.
         var bootstrap = Object.FindFirstObjectByType<FlashGame.FlashPrototype>();
         if (bootstrap == null) throw new System.InvalidOperationException("Open the FlashPrototype scene first.");

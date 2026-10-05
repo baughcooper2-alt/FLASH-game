@@ -8,7 +8,8 @@ namespace FlashGame
     {
         enum Move { None, PunchRight, PunchLeft, Uppercut, Kick, Slam }
         Transform leftArm, rightArm, leftLeg, rightLeg, torso;
-        Transform rUpper, rLower, rHand, lUpper, lLower, lHand, rThigh, rShin, rFoot, chest;
+        Transform rUpper, rLower, rHand, lUpper, lLower, lHand, rThigh, rShin, rFoot, chest, lToes, rToes;
+        Quaternion lToesRest, rToesRest;
         SpeedLightning lightning;
         float stride;
         Animator animator;
@@ -17,7 +18,7 @@ namespace FlashGame
         Material mannequinSuit, mannequinTrim;
         Move move;
         Vector3 moveTarget;
-        float moveTime, moveLength, spinTime, spinLength, spinTurns, flinch, windmill;
+        float moveTime, moveLength, spinTime, spinLength, spinTurns, flinch, windmill, bank, lastYaw;
         bool windmilling;
         public int Skin { get; private set; }
         public SkinnedMeshRenderer SkinnedMesh { get; private set; }
@@ -52,6 +53,9 @@ namespace FlashGame
                     rThigh = animator.GetBoneTransform(HumanBodyBones.RightUpperLeg);
                     rShin = animator.GetBoneTransform(HumanBodyBones.RightLowerLeg);
                     rFoot = animator.GetBoneTransform(HumanBodyBones.RightFoot);
+                    lToes = animator.GetBoneTransform(HumanBodyBones.LeftToes);
+                    rToes = animator.GetBoneTransform(HumanBodyBones.RightToes);
+                    lToesRest = BindRotation(SkinnedMesh, lToes); rToesRest = BindRotation(SkinnedMesh, rToes);
                     chest = animator.GetBoneTransform(HumanBodyBones.Chest);
                     if (chest == null) chest = animator.GetBoneTransform(HumanBodyBones.Spine);
                 }
@@ -86,11 +90,13 @@ namespace FlashGame
             SetSkin(FlashSkins.Saved);
             foreach (var child in GetComponentsInChildren<Transform>()) child.gameObject.layer = 2;
         }
-        // The supplied run cycle is very quick (0.23 s): slow it to a human cadence at 7 m/s, then let the
-        // legs blur up through the speed tiers. Below a run the walk plays at its own pace.
+        // The supplied run covers 14.3 m per second of clip on this body, so playing it at speed / 14.3 plants
+        // each foot without sliding. Past ~30 m/s the legs would strobe, so cadence grows only slowly from there
+        // (the lightning sells the rest). Below a run the walk plays at its own pace.
+        public const float RunStrideSpeed = 14.3f;
         public static float RunRate(float speed) => speed < 7
-            ? Mathf.Lerp(1, .45f, Mathf.InverseLerp(2, 7, speed))
-            : Mathf.Lerp(.45f, 1.6f, Mathf.Sqrt(Mathf.InverseLerp(7, 130, speed)));
+            ? Mathf.Lerp(1, 7 / RunStrideSpeed, Mathf.InverseLerp(2, 7, speed))
+            : speed < 30 ? speed / RunStrideSpeed : 30 / RunStrideSpeed + (speed - 30) * .005f;
         public void SetSkin(int index)
         {
             Skin = FlashSkins.Wrap(index);
@@ -164,6 +170,16 @@ namespace FlashGame
                     float side = Mathf.Sign(Vector3.Cross(transform.forward, motor.Velocity).y + 1e-4f);
                     pose = Quaternion.Euler(0, side * 30, -side * 18);
                 }
+                else if (grounded && speed > 6)
+                {
+                    // Lean into turns like a sprinter (a fraction of the physical lean, capped at 16 degrees).
+                    float yawRate = dt > 0 ? Mathf.DeltaAngle(lastYaw, transform.eulerAngles.y) / dt : 0;
+                    float target = Mathf.Clamp(-Mathf.Atan(speed * yawRate * Mathf.Deg2Rad / 9.81f) * Mathf.Rad2Deg * .35f, -16, 16);
+                    bank = Mathf.Lerp(bank, target, 1 - Mathf.Exp(-6 * dt));
+                    pose = Quaternion.Euler(0, 0, bank);
+                }
+                if (!(grounded && speed > 6) || onWall || onCeiling) bank = 0;
+                lastYaw = transform.eulerAngles.y;
                 if (spinLength > 0) pose *= Quaternion.Euler(0, spinTime / spinLength * 360 * spinTurns, 0);
                 float blend = spinLength > 0 ? 1 : 1 - Mathf.Exp(-12 * dt);
                 torso.localRotation = Quaternion.Slerp(torso.localRotation, pose, blend);
@@ -187,10 +203,24 @@ namespace FlashGame
             lightning.Tick(torso, speed, dt, effects);
         }
 
+        // A bone's local rotation in the mesh's bind pose, where the boots' soles and toes are flat.
+        static Quaternion BindRotation(SkinnedMeshRenderer skin, Transform bone)
+        {
+            if (skin == null || bone == null) return bone != null ? bone.localRotation : Quaternion.identity;
+            int i = System.Array.IndexOf(skin.bones, bone), p = System.Array.IndexOf(skin.bones, bone.parent);
+            if (i < 0 || p < 0) return bone.localRotation;
+            var poses = skin.sharedMesh.bindposes;
+            return (poses[p] * poses[i].inverse).rotation;
+        }
+
         // Power poses are layered over the animation after the Animator has written the bones.
         void LateUpdate()
         {
             if (rUpper == null) return;
+            // The suit's boots are rigid: hold the toe caps as modelled. Humanoid retargeting rolls this rig's toe
+            // bones and the clips flex them, which made the toe caps hang like flaps.
+            if (lToes != null) lToes.localRotation = lToesRest;
+            if (rToes != null) rToes.localRotation = rToesRest;
             Vector3 forward = transform.forward, up = Vector3.up, right = transform.right;
             if (move != Move.None && moveTime < moveLength)
             {

@@ -20,6 +20,7 @@ namespace FlashGame
         readonly Dictionary<Material, (float metal, float smooth)> finish = new Dictionary<Material, (float, float)>();
         readonly Dictionary<(int skin, Slot slot), RenderTexture> painted = new Dictionary<(int, Slot), RenderTexture>();
         Material recolor;
+        int current = -1;
 
         public bool Ready => targets.Count > 0 && recolor != null;
 
@@ -51,6 +52,7 @@ namespace FlashGame
         public void Apply(int index)
         {
             if (!Ready) return;
+            current = index;
             var skin = FlashSkins.All[index];
             // Only the worn suit stays in video memory; repainting another is a few blits.
             foreach (var key in new List<(int skin, Slot slot)>(painted.Keys))
@@ -76,6 +78,15 @@ namespace FlashGame
                 }
                 material.SetTexture(BaseMapId, target);
             }
+        }
+
+        // Render textures can lose their contents (graphics device resets, window or fullscreen changes, and on
+        // entering Play Mode), which left the suit untextured grey. Repaint whenever that happens.
+        void LateUpdate()
+        {
+            if (current < 0) return;
+            foreach (var target in painted.Values)
+                if (target == null || !target.IsCreated()) { Apply(current); return; }
         }
 
         RenderTexture Paint(Texture source, FlashSkin skin, Slot slot)

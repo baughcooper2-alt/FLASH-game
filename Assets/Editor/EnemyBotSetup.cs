@@ -61,10 +61,13 @@ public static class EnemyBotSetup
         }).ToArray();
         importer.humanDescription = description;
         importer.SaveAndReimport();
+        // The bot is modelled in an A-pose with bent elbows and knees; shared clips need a true T-pose reference.
+        HumanoidTPose.Enforce(fbx);
         var avatar = AssetDatabase.LoadAllAssetsAtPath(fbx).OfType<Avatar>().First();
         if (!avatar.isValid || !avatar.isHuman) throw new System.InvalidOperationException("Enemy bot avatar is not a valid Humanoid.");
         var walk = AssetDatabase.LoadAllAssetsAtPath(fbx).OfType<AnimationClip>().First(c => !c.name.StartsWith("__preview__"));
-        var stand = Clip(Character + "Animations/stand.fbx");
+        // The shared natural idle (built by FlashRealisticSetup) if present, else the HatchXR stand.
+        var stand = AssetDatabase.LoadAssetAtPath<AnimationClip>(IdleClipBuilder.Path) ?? Clip(Character + "Animations/stand.fbx");
         var run = Clip(Character + "Animations/Running.fbx");
 
         string controllerPath = Folder + "BotLocomotion.controller";
