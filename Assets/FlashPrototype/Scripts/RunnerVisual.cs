@@ -6,10 +6,25 @@ namespace FlashGame
     public sealed class RunnerVisual : MonoBehaviour
     {
         Transform leftArm, rightArm, leftLeg, rightLeg, torso;
-        TrailRenderer[] trails;
+        SpeedLightning lightning;
         float stride;
-        public void Build(PrototypeWorld world)
+        Animator animator;
+        SpeedsterMotor motor;
+        public void SetPaused(bool paused) { if (animator != null) animator.speed = paused ? 0 : 1; }
+        public void Build(PrototypeWorld world, GameObject characterPrefab = null)
         {
+            motor = GetComponent<SpeedsterMotor>();
+            if (characterPrefab != null)
+            {
+                var character = Instantiate(characterPrefab, transform, false);
+                character.name = "Flash - animated character";
+                torso = character.transform;
+                animator = character.GetComponentInChildren<Animator>();
+                if (animator != null) animator.applyRootMotion = false;
+                BuildTrails(world.Material("Speed lightning", new Color(1, 0.66f, 0.12f), 0.6f));
+                foreach (var child in GetComponentsInChildren<Transform>()) child.gameObject.layer = 2;
+                return;
+            }
             var red = world.Material("Runner burgundy", new Color(0.48f, 0.025f, 0.045f));
             var gold = world.Material("Runner gold", new Color(1f, 0.66f, 0.12f), 0.6f);
             var white = world.Material("Emblem", new Color(0.9f, 0.9f, 0.83f));
@@ -29,25 +44,13 @@ namespace FlashGame
             rightLeg = Limb(world, "Right leg", new Vector3(0.12f, 0.95f, 0), 0.75f, 0.16f, red);
             world.Shape("Left boot", PrimitiveType.Cube, leftLeg, new Vector3(0, -0.78f, 0.06f), new Vector3(0.17f, 0.19f, 0.3f), gold, false);
             world.Shape("Right boot", PrimitiveType.Cube, rightLeg, new Vector3(0, -0.78f, 0.06f), new Vector3(0.17f, 0.19f, 0.3f), gold, false);
-            trails = new TrailRenderer[3];
-            for (int i = 0; i < trails.Length; i++)
-            {
-                var anchor = new GameObject("Lightning trail " + i);
-                anchor.transform.SetParent(torso, false);
-                anchor.transform.localPosition = new Vector3((i - 1) * 0.23f, 1.15f - Mathf.Abs(i - 1) * 0.3f, -0.1f);
-                var trail = anchor.AddComponent<TrailRenderer>();
-                trail.sharedMaterial = gold;
-                trail.time = 0.17f;
-                trail.minVertexDistance = 0.3f;
-                trail.startWidth = 0.075f;
-                trail.endWidth = 0;
-                trail.numCornerVertices = 1;
-                trail.emitting = false;
-                trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                trail.receiveShadows = false;
-                trails[i] = trail;
-            }
+            BuildTrails(gold);
             foreach (var child in GetComponentsInChildren<Transform>()) child.gameObject.layer = 2;
+        }
+        void BuildTrails(Material gold)
+        {
+            lightning=gameObject.AddComponent<SpeedLightning>();
+            lightning.Build(Resources.Load<Material>("SpeedLightning") ?? gold);
         }
         void Part(PrototypeWorld world, string name, Transform parent, Vector3 pos, Vector3 size, Material mat)
             => world.Shape(name, PrimitiveType.Capsule, parent, pos, size, mat, false);
@@ -58,8 +61,25 @@ namespace FlashGame
             Part(world, name + " mesh", limb, new Vector3(0, -length / 2, 0), new Vector3(width, length / 2, width), mat);
             return limb;
         }
-        public void Tick(float speed, bool grounded, float dt, bool effects)
+        public void Tick(float speed, bool grounded, float dt, bool effects, float verticalSpeed = 0)
         {
+            bool onWall = motor != null && motor.WallRunning;
+            if (animator != null)
+            {
+                Quaternion pose = onWall && !motor.Cresting
+                    ? Quaternion.Inverse(transform.rotation) * Quaternion.LookRotation(Vector3.up, motor.WallNormal)
+                    : Quaternion.identity;
+                torso.localRotation = Quaternion.Slerp(torso.localRotation, pose, 1 - Mathf.Exp(-12 * dt));
+                Vector3 offset = onWall && !motor.Cresting
+                    ? transform.InverseTransformDirection(-motor.WallNormal * 1.55f) : Vector3.zero;
+                torso.localPosition = Vector3.Lerp(torso.localPosition, offset, 1 - Mathf.Exp(-12 * dt));
+                animator.SetFloat("Speed", speed, 0.12f, dt);
+                animator.SetBool("Grounded", grounded || onWall);
+                animator.SetFloat("VerticalSpeed", verticalSpeed);
+                animator.SetFloat("RunRate", Mathf.Lerp(1, 1.8f, Mathf.InverseLerp(7, 65, speed)));
+                lightning.Tick(torso, speed, dt, effects);
+                return;
+            }
             stride += dt * Mathf.Lerp(0, 24, Mathf.Clamp01(speed / 25));
             float swing = Mathf.Sin(stride) * Mathf.Clamp01(speed / 5) * (grounded ? 48 : 18);
             leftArm.localRotation = Quaternion.Euler(-swing - 15, 0, -8);
@@ -67,8 +87,8 @@ namespace FlashGame
             leftLeg.localRotation = Quaternion.Euler(swing, 0, 0);
             rightLeg.localRotation = Quaternion.Euler(-swing, 0, 0);
             torso.localRotation = Quaternion.Euler(Mathf.Lerp(0, 13, speed / 130), 0, 0);
-            foreach (var trail in trails) trail.emitting = effects && speed > 12;
+            lightning.Tick(torso, speed, dt, effects);
         }
-        public void ClearTrails() { foreach (var trail in trails) trail.Clear(); }
+        public void ClearTrails() { lightning.Clear(); }
     }
 }

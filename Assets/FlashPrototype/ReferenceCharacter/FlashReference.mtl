@@ -1,0 +1,36 @@
+newmtl Mat.1
+Kd 1 1 1
+map_Kd emblem_Base_Color_1.png
+
+newmtl Mat.2
+Kd 1 1 1
+map_Kd lightning_embelm_Base_Color.png
+
+newmtl Mat.3
+Kd 1 1 1
+map_Kd golden_Base_Color.png
+
+newmtl Mat.4
+Kd 1 1 1
+map_Kd earing_round_Base_Color.png
+
+newmtl Mat.5
+Kd 1 1 1
+map_Kd mask_Base_Color.png
+
+newmtl Mat.6
+Kd 1 1 1
+map_Kd eyes_Base_Color.png
+
+newmtl Mat.7
+Kd 1 1 1
+map_Kd face_Base_Color.png
+
+newmtl Mat.8
+Kd 1 1 1
+map_Kd Pants_6.png
+
+newmtl Mat.9
+Kd 1 1 1
+map_Kd Body_6.png
+
