@@ -18,7 +18,6 @@ namespace FlashGame
             var bark=w.Material("Tree trunks",new Color(.2f,.16f,.12f));
             var foliage=w.Material("Tree canopy",new Color(.14f,.25f,.12f));
             var paint=w.Material("Lane paint",new Color(.79f,.75f,.6f));
-            var blue=w.Material("Research signage",new Color(.28f,.72f,1),1);
             var water=w.Material("Harbour water",new Color(.12f,.29f,.34f)); water.SetFloat("_Surface",2);
             var facades=new Material[4];
             Color[] colors={new Color(.38f,.46f,.49f),new Color(.59f,.56f,.5f),new Color(.29f,.37f,.42f),new Color(.42f,.29f,.23f)};
@@ -35,8 +34,8 @@ namespace FlashGame
             {
                 float p=n*10;
                 if(Mathf.Abs(p-Mathf.Round(p/130)*130)<15)continue;
-                w.Box("Road dash",new Vector3(i*130,.015f,p),new Vector3(.17f,.02f,4),paint,false);
-                w.Box("Road dash",new Vector3(p,.015f,i*130),new Vector3(4,.02f,.17f),paint,false);
+                if(!OnLabPlaza(i*130,p))w.Box("Road dash",new Vector3(i*130,.015f,p),new Vector3(.17f,.02f,4),paint,false);
+                if(!OnLabPlaza(p,i*130))w.Box("Road dash",new Vector3(p,.015f,i*130),new Vector3(4,.02f,.17f),paint,false);
             }
             var random=new System.Random(4026);
             for(int x=-6;x<6;x++) for(int z=-6;z<6;z++)
@@ -66,13 +65,14 @@ namespace FlashGame
             }
             Bridge(w,root,0,asphalt,stone,steel);
             Bridge(w,root,520,asphalt,stone,steel);
-            Stadium(w,root,stone,steel,glass,concrete,blue,facades[0]);
+            StarLabs.Build(w,root,LabCenter);
             for(int i=0;i<12;i++)
                 Building(w,new Vector3(1460,0,-700+i*120),55,70,35+i%4*28,facades[i%4],stone,steel,glass,false);
             w.Labels.Add(new WorldLabel(new Vector3(0,7,-800),"ACCELERATION STRAIGHT"));
             w.Labels.Add(new WorldLabel(new Vector3(750,7,20),"CENTRAL CITY WATERFRONT"));
             CombineDistrict(root);
         }
+        static bool OnLabPlaza(float x,float z)=>new Vector2(x-LabCenter.x,z-LabCenter.z).sqrMagnitude<120*120;
         static void CombineDistrict(Transform root)
         {
             var groups=new Dictionary<(Material,int,int),List<CombineInstance>>();
@@ -80,6 +80,7 @@ namespace FlashGame
             {
                 var renderer=filter.GetComponent<MeshRenderer>();
                 if(renderer==null || filter.sharedMesh==null || renderer.sharedMaterials.Length!=1 || !filter.sharedMesh.isReadable)continue;
+                if(filter.GetComponentInParent<StarLabsDynamic>()!=null)continue;
                 var key=(renderer.sharedMaterial,Mathf.FloorToInt(filter.transform.position.x/390),Mathf.FloorToInt(filter.transform.position.z/390));
                 if(!groups.TryGetValue(key,out var list))groups[key]=list=new List<CombineInstance>();
                 list.Add(new CombineInstance{mesh=filter.sharedMesh,transform=root.worldToLocalMatrix*filter.transform.localToWorldMatrix});
@@ -150,63 +151,6 @@ namespace FlashGame
                     }
                 }
             }
-        }
-        static void Stadium(PrototypeWorld w,Transform root,Material stone,Material metal,Material glass,Material floor,Material light,Material facade)
-        {
-            Vector3 c=LabCenter;
-            w.Shape("STAR Labs plaza",PrimitiveType.Cylinder,root,c+Vector3.down*.1f,new Vector3(370,.1f,290),floor);
-            // Segmented elliptical shell leaves an actual entrance at the south.
-            const int count=64;
-            for(int i=0;i<count;i++)
-            {
-                float a=i*Mathf.PI*2/count; float x=Mathf.Sin(a),z=Mathf.Cos(a);
-                bool doorway=Mathf.Abs(x)<.13f && z<0;
-                Vector3 p=c+new Vector3(x*143,13,z*100);
-                if(!doorway)
-                {
-                    var wall=w.Shape("Oval laboratory facade",PrimitiveType.Cube,root,p,new Vector3(15,26,3),facade);
-                    wall.transform.rotation=Quaternion.Euler(0,a*Mathf.Rad2Deg,0);
-                }
-                var rib=w.Shape("Roof radial rib",PrimitiveType.Cube,root,c+new Vector3(x*127,30,z*87),new Vector3(1.2f,1.5f,42),stone,false);
-                rib.transform.rotation=Quaternion.Euler(z<0?-8:8,a*Mathf.Rad2Deg,0);
-            }
-            Ring(w,root,"Oval silver roof",c+Vector3.up*28,155,109,102,66,metal);
-            Ring(w,root,"Roof outer rim",c+Vector3.up*29,158,112,151,105,stone);
-            Ring(w,root,"Atrium glass roof",c+Vector3.up*25,103,67,92,57,glass);
-            w.Box("Research tower west",c+new Vector3(-80,61,16),new Vector3(28,122,34),facade);
-            w.Box("Research tower east",c+new Vector3(67,78,22),new Vector3(34,156,40),facade);
-            w.Box("Tower crown",c+new Vector3(67,158,22),new Vector3(39,4,45),stone);
-            w.Box("Entrance header",c+new Vector3(0,17,-102),new Vector3(33,5,6),stone);
-            w.Box("Entrance illuminated lintel",c+new Vector3(0,13.5f,-106),new Vector3(29,.35f,.3f),light,false);
-            w.Box("Visitor walkway",c+new Vector3(0,.04f,-121),new Vector3(32,.08f,64),floor);
-            w.Box("Reception",c+new Vector3(0,1.5f,-63),new Vector3(18,3,4),metal);
-            for(int i=-2;i<=2;i++)
-            {
-                w.Box("Laboratory workbench",c+new Vector3(i*18,1.2f,-20),new Vector3(10,2.4f,4),stone);
-                w.Box("Laboratory display",c+new Vector3(i*18,3,-19),new Vector3(7,2,.2f),light,false);
-            }
-            w.Shape("Speedster exhibit pedestal",PrimitiveType.Cylinder,root,c+new Vector3(0,.6f,18),new Vector3(9,.6f,9),metal);
-            var exhibit=Resources.Load<GameObject>("FlashReference");
-            if(exhibit!=null){var model=Object.Instantiate(exhibit,root);model.name="Supplied Flash model - static reference exhibit";model.transform.position=c+new Vector3(0,1.2f,18);model.transform.localScale=Vector3.one*2.2f;}
-            w.Labels.Add(new WorldLabel(c+new Vector3(0,22,-110),"S.T.A.R. LABS\nVISITOR ENTRANCE"));
-        }
-        static void Ring(PrototypeWorld w,Transform root,string name,Vector3 center,float rx,float rz,float ix,float iz,Material mat)
-        {
-            var vertices=new Vector3[128];var triangles=new int[384];
-            for(int i=0;i<64;i++)
-            {
-                float a=i*Mathf.PI*2/64;
-                vertices[i*2]=new Vector3(Mathf.Sin(a)*rx,0,Mathf.Cos(a)*rz);
-                vertices[i*2+1]=new Vector3(Mathf.Sin(a)*ix,0,Mathf.Cos(a)*iz);
-                int n=(i+1)%64;int t=i*6;
-                triangles[t]=i*2;triangles[t+1]=n*2;triangles[t+2]=i*2+1;
-                triangles[t+3]=i*2+1;triangles[t+4]=n*2;triangles[t+5]=n*2+1;
-            }
-            var go=new GameObject(name);go.transform.SetParent(root,false);go.transform.position=center;
-            var mesh=new Mesh{name=name};mesh.vertices=vertices;mesh.triangles=triangles;mesh.RecalculateNormals();mesh.RecalculateBounds();
-            go.AddComponent<MeshFilter>().sharedMesh=mesh;go.AddComponent<MeshRenderer>().sharedMaterial=mat;
-            go.AddComponent<MeshCollider>().sharedMesh=mesh;
-            go.AddComponent<RuntimeMeshOwner>().Mesh=mesh;
         }
     }
     public sealed class RuntimeMeshOwner:MonoBehaviour

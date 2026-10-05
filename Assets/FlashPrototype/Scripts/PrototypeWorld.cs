@@ -11,6 +11,8 @@ namespace FlashGame
         readonly Transform root;
         readonly Shader shader;
         float trafficClock;
+        // World-clock tick (slowed by speed perception, stopped while paused) for animated set pieces.
+        public event System.Action<float> Ticked;
         public PrototypeWorld(Transform parent, Shader shader) { root = parent; this.shader = shader; }
         public Material Material(string name, Color color, float glow = 0)
         {
@@ -68,6 +70,7 @@ namespace FlashGame
                 cars[i].position = new Vector3(i % 2 == 0 ? 124 : 136, 0, i % 2 == 0 ? z : -z);
                 cars[i].rotation = Quaternion.Euler(0, i % 2 == 0 ? 0 : 180, 0);
             }
+            Ticked?.Invoke(dt);
         }
         public void Dispose() { foreach (var material in materials) Object.Destroy(material); }
     }
