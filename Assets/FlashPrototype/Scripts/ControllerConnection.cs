@@ -18,10 +18,11 @@ namespace FlashGame
                 checkMessage="Controller ready. Move a stick below.";
                 return;
             }
-            bool other=false;
+            Joystick other=null;
             foreach(var device in InputSystem.devices)
-                if(device is Joystick)other=true;
-            checkMessage=other ? "Joystick detected, but no supported gamepad mapping. Check macOS support for this controller."
+                if(device is Joystick joystick)other=joystick;
+            // Name unmapped controllers so a layout can be added for them (see GameSirGamepad).
+            checkMessage=other!=null ? $"\"{other.description.product}\" ({other.description.interfaceName}) is connected but has no gamepad mapping yet."
                 : "No gamepad reported by the computer. Try another USB data cable or port. Some Xbox models need Bluetooth on macOS.";
         }
         public static Gamepad ConnectedPad

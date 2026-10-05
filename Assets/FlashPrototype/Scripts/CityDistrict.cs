@@ -27,6 +27,9 @@ namespace FlashGame
             for(int i=0;i<15;i++)
                 w.Shape("Distant wooded ridge",PrimitiveType.Sphere,root,new Vector3(-1550-i%3*200,20,-1900+i*280),new Vector3(750,190+i%4*55,650),foliage,false);
             w.Box("Harbour",new Vector3(1120,-2,0),new Vector3(680,.3f,2400),water,false);
+            // Fast runners can cross the harbour surface (SpeedsterMotor water running).
+            WaterZones.Clear();
+            WaterZones.Add(new Rect(781,-1200,1390-781,2400),-1.85f);
             w.Box("Far shore",new Vector3(1480,-1,0),new Vector3(180,2,1560),grass);
             w.Box("Training straight",new Vector3(0,-1,-1130),new Vector3(42,2,700),asphalt);
             for(int i=-5;i<=5;i++)
@@ -60,6 +63,8 @@ namespace FlashGame
             for(int z=-750;z<=750;z+=30)
             {
                 if(Mathf.Abs(z)<30 || Mathf.Abs(z-520)<30)continue;
+                // Gaps in the sea wall let runners sprint straight out onto the water.
+                if(Mathf.Abs(z+330)<40 || Mathf.Abs(z-270)<40)continue;
                 w.Box("Sea wall",new Vector3(780,1,z),new Vector3(1.5f,2,29),stone);
                 Tree(w,root,new Vector3(751,0,z),bark,foliage);
             }
@@ -70,7 +75,26 @@ namespace FlashGame
                 Building(w,new Vector3(1460,0,-700+i*120),55,70,35+i%4*28,facades[i%4],stone,steel,glass,false);
             w.Labels.Add(new WorldLabel(new Vector3(0,7,-800),"ACCELERATION STRAIGHT"));
             w.Labels.Add(new WorldLabel(new Vector3(750,7,20),"CENTRAL CITY WATERFRONT"));
+            foreach(float z in new[]{-330f,270f})
+                w.Labels.Add(new WorldLabel(new Vector3(772,5,z),"WATER RUN\nKeep above 24 m/s"));
+            Tunnel(w);
             CombineDistrict(root);
+        }
+        // Covered stretch of the acceleration straight for ceiling running: wall-run a side wall into
+        // the roof, or speed-jump into it at Super Speed or faster.
+        static void Tunnel(PrototypeWorld w)
+        {
+            var shell=w.Material("Tunnel concrete",new Color(.42f,.43f,.44f));
+            shell.SetFloat("_Surface",4);shell.SetFloat("_WindowStyle",3);
+            var lamp=w.Material("Tunnel lights",new Color(1,.92f,.75f),1);
+            const float z0=-900,z1=-1100,height=5.2f;
+            for(int side=-1;side<=1;side+=2)
+                w.Box("Tunnel wall",new Vector3(side*20.5f,height/2,(z0+z1)/2),new Vector3(1,height,z0-z1),shell);
+            w.Box("Tunnel roof",new Vector3(0,height+.3f,(z0+z1)/2),new Vector3(42,.6f,z0-z1),shell);
+            for(float z=z0-10;z>z1;z-=20)
+                for(int side=-1;side<=1;side+=2)
+                    w.Box("Tunnel light",new Vector3(side*8,height-.03f,z),new Vector3(1.2f,.06f,6),lamp,false);
+            w.Labels.Add(new WorldLabel(new Vector3(0,7,z0+12),"CEILING RUN TUNNEL\nSpeed-jump into the roof"));
         }
         static bool OnLabPlaza(float x,float z)=>new Vector2(x-LabCenter.x,z-LabCenter.z).sqrMagnitude<120*120;
         static void CombineDistrict(Transform root)

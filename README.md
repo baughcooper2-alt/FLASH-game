@@ -14,36 +14,34 @@ The district, runner and HUD are created when Play starts. The scene intentional
 
 ## Controls
 
-| Action | Keyboard / mouse | Xbox controller |
+| Action | Keyboard / mouse | Xbox / GameSir controller |
 |---|---|---|
-| Move | WASD | Left stick |
-| Look | Mouse | Right stick |
-| Increase speed level | E | RB |
-| Decrease speed level | Q | LB |
-| Jump | Space | A |
-| Brake | Hold Left Shift | Hold LT |
+| Move / look | WASD / mouse | Left stick / right stick |
+| Speed tier up / down | E / Q | RB / LB |
+| Jump (speed jump at high speed) | Space | A |
+| Brake: tap = instant stop, hold + steer = drift | Left Shift | LT |
+| Speed boost (in the air: air dash) | Left Ctrl | L3 (click left stick) |
+| Punch (hold near a bot: rapid punches) | Left mouse | X |
+| Lightning throw (hold: ground lightning) | Right mouse | B |
+| Afterimage decoys | V | R3 (click right stick) |
+| Special power, or the context action shown | G / middle mouse | Y |
+| Pick special power | Z / X, mouse wheel | D-pad left / right |
 | Speed perception | Hold F | Hold RT |
-| Start / restart circuit | T | Y |
-| Return to spawn / cancel race | R | View |
-| Pause / resume | Esc | Menu |
-
-The pause menu has mouse-operated toggles for lightning trails, dynamic field of view, and control hints. Controller Menu resumes play. Focus loss pauses the simulation. USB and Bluetooth controllers connect automatically when recognized by macOS. Input System 1.14.2 includes the native macOS USB Xbox layout. A USB data cable is required; physical-controller verification is still pending.
-
-Use **Esc → Connect / test Xbox controller** for pairing instructions, a shortcut to Bluetooth settings, automatic connection status, and live stick/trigger/button readings. Pair in system settings, then return to the Game view to test. USB data cables are also supported.
-
-To run up a building, select a speed level above Normal with RB / E and run straight toward a tall wall. Keep moving to climb and automatically crest onto the roof. Press A / Space to jump away; LT / Left Shift or releasing movement detaches.
+| Start / restart circuit | T | D-pad up |
+| Return to S.T.A.R. Labs | R | View |
+| Pause, suits (Q/E, LB/RB or D-pad while paused) | Esc | Menu |
 
 ## What is implemented
 
-- Four manually selected speed levels, camera-relative movement, slower steering at high speed, braking, gravity, jumping, and momentum loss on collisions.
-- Vertical wall running, collision-stepped rooftop transitions, and outward wall jumps, with an animated wall pose and upward camera framing.
-- Third-person orbit camera with obstruction checks, optional speed-based FOV, and no camera shake or motion blur.
-- Rigged, textured Flash character with Humanoid idle/walk/run blending, jump-up and falling clips, and thin, flickering amber lightning filaments. The original mannequin remains a fallback. See [character credits](Assets/FlashPrototype/Character/ATTRIBUTION.md).
-- A 1.56 km square district with 45–248 m towers, patterned facades, rooftop details, trees, parks, a waterfront promenade, and two bridges. An oval S.T.A.R. Labs has a walk-in atrium; selected towers have open lobbies. This is a procedural first art pass, not finished photorealistic architecture.
-- Ten placeholder traffic vehicles. Speed perception slows these vehicles while keeping player control responsive.
-- Nine-gate city circuit, real-time race clock excluding pause, swept gate detection, restart, and locally saved best time.
-- Speedometer, speed tier, distance, FPS, control hints, and pause menu.
-- Frame-rate target of 60, simple shared materials, inexpensive directional shading, directional sunlight and 240 m shadow distance, and limited traffic. **Mac performance has not been measured yet.**
+**Movement powers.** Four speed tiers; Speed Boost (also boosts wall climbs: Speed Climb); Air Dash; Speed Jump (momentum becomes height, up to ~15 m); Speed Drift; Instant Stop; Wall Running onto roofs; Water Running across the harbour above 24 m/s (gaps in the sea wall at the promenade; slower runners sink and return to shore); Ceiling Running (speed-jump into the training-straight tunnel roof, or wall-run up into it).
+
+**Combat powers.** Punch combos ending in a Speed Uppercut; Rapid Punches; Mach Punch (punch a distant bot at speed); Infinite Mass Punch (charged by 4 s at Speed Force, released on the next Mach Punch); Speed Tackle (run into bots); Lightning Throw (homing, chains); Lightning Kick (punch in the air) and ground pound; Ground Lightning; Afterimage decoys that bots attack and that burst when hit. Specials (Y, paid from the Speed Force meter): Whirlwind Punch, Tornado Arms, Speed Barrage, Lightning Punch, Ground Lightning, Cyclone, Speed Steal, Vacuum Blast.
+
+**Environmental powers.** Run circles to make a tornado (a whirlpool on water); vortices trap bots, smother fires and pull smoke or gas away (reverse tornado). Tornado Arms and Vacuum Blast extinguish fires; Speed Dig frees trapped civilians; Rapid Repair and Rapid Construction assemble scattered or stacked pieces. Four rotating emergencies (car fire, gas leak, building collapse, shelter construction) use them, with civilians who cough, wait and cheer.
+
+**Enemies.** The supplied enemy bot, rigged as a Humanoid and animated with its own walk plus shared stand and run clips. Strikers brawl, Gunners keep their distance and fire bolts, Heavies hit hard and resist knockback. Waves warp in at rotating city sites. Health regenerates when out of combat; the Speed Force meter fills with speed and pays for powers.
+
+**Character and look.** Realistic Flash (the supplied high-detail model, rigged in Blender) using the supplied Mixamo run; 20 suits including Barry's Seasons 1 to 9 (gold boots from Season 8), Reverse-Flash, Zoom, Kid Flash, Jesse Quick, XS, Godspeed and comics suits; Speed Force lightning in each suit's colour with bloom. S.T.A.R. Labs, the 1.56 km waterfront city, traffic, a nine-gate circuit and the controller panel are unchanged.
 
 Speeds are 7 / 28 / 65 / 130 metres per second. “Mach” and “Speed Force” are gameplay tier names, not literal canon velocity. Top prototype speed is about 291 mph. This scale keeps turns and collision testing useful in the small district. No stamina system.
 
@@ -58,12 +56,12 @@ Wall traversal checks passed at simulated 20, 30, and 60 FPS: attachment, an ove
 ## Next milestones
 
 1. Test and tune movement, camera, braking, collisions and controller input on the M2.
-2. Refine the lightweight animated Flash character toward the realistic CW visual target; retain the placeholder as a fallback.
+2. Speedster-specific animation (sprint lean, wall-run and phasing poses) and suit-specific geometry such as Jay Garrick's helmet or Savitar's armour.
 3. Playtest wall running, then add water running and phasing with collision and camera tests.
 4. Add civilian rescue interactions and one repeatable emergency.
 5. Grow the city and living-world systems after traversal is stable.
 
-Combat, villains, suit selection, time travel, other maps and multiplayer remain planned. They are not implemented in this milestone. The long-term realistic, primarily CW-inspired direction remains unchanged.
+Combat, villains, time travel, other maps and multiplayer remain planned. They are not implemented in this milestone. The long-term realistic, primarily CW-inspired direction remains unchanged.
 
 ## Project layout
 
@@ -77,4 +75,4 @@ The district uses Unity primitives. The character and five bundled animation FBX
 
 ## Supplied character reference
 
-The user-supplied `the-flash.zip` contains a posed OBJ and textures, without a skeleton or animation clips. Its single character was extracted, the missing material definitions were reconstructed, and nine textured materials were assigned. The model is displayed on the S.T.A.R. Labs exhibit pedestal. The animated player retains the earlier rig with a darker suit; replacing it with this exact model still requires rigging and skinning.
+The user-supplied `the-flash.zip` contains a posed OBJ and textures, without a skeleton or animation clips. Its single character was extracted, the missing material definitions were reconstructed, and nine textured materials were assigned. It is displayed in the Cortex suit case and, rigged, is now the playable character. To rebuild after changing the joints, run `blender -b --python Tools/Blender/rig_flash_realistic.py`, then **Flash → Configure realistic character** in Unity.
