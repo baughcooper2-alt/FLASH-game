@@ -11,7 +11,7 @@ from mathutils import Vector, Matrix
 
 args = sys.argv[sys.argv.index("--") + 1:]
 MODE = args[0]
-LAYERS = ("Body", "Shirt", "Hair", "Shoes", "Watch")
+LAYERS = ("Body", "Shirt", "Tee", "Jeans", "Jacket", "Hair", "Shoes", "Watch")
 
 def smooth(t): t = max(0.0, min(1.0, t)); return t * t * (3 - 2 * t)
 
@@ -43,6 +43,27 @@ def cut(bm, field):
         if side > 0: gone.append(f)
     bmesh.ops.delete(bm, geom=gone, context='FACES')
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+    bm.normal_update()
+
+def double_sided(bm, inset=.002, near=None):
+    """Adds a flipped copy just inside the surface: game engines cull back faces, so open garments (fronts, collars,
+    cuffs, hems) would otherwise show through to the far side. With `near`, only faces within that distance of an
+    opening get an inside (the rest of a closed garment's inside can never be seen)."""
+    bm.normal_update()
+    faces = bm.faces[:]
+    if near is not None:
+        from mathutils.kdtree import KDTree
+        edge = [v.co.copy() for v in bm.verts if v.is_boundary]
+        tree = KDTree(len(edge))
+        for i, c in enumerate(edge): tree.insert(c, i)
+        tree.balance()
+        faces = [f for f in faces if tree.find(f.calc_center_median())[2] < near]
+    verts = {v for f in faces for v in f.verts}
+    normals = {v: v.normal.copy() for v in verts}
+    dup = bmesh.ops.duplicate(bm, geom=list(verts) + list({e for f in faces for e in f.edges}) + faces)
+    for old, new in dup["vert_map"].items():
+        if isinstance(old, bmesh.types.BMVert) and old in normals: new.co -= normals[old] * inset
+    bmesh.ops.reverse_faces(bm, faces=[g for g in dup["geom"] if isinstance(g, bmesh.types.BMFace)])
     bm.normal_update()
 
 if MODE == "geometry":
@@ -90,13 +111,14 @@ if MODE == "geometry":
     main = max(range(len(sizes)), key=lambda i: sizes[i])
     eyeballs = {i for i, n in enumerate(sizes) if 300 < n < 500 and centres[i].z > 1.68}
 
-    def layer(name, field, displace, subdivide=0):
+    def layer(name, field, displace, subdivide=0, near=None):
         obj = body.copy(); obj.data = body.data.copy(); obj.name = obj.data.name = name
         scene.collection.objects.link(obj)
         bm = bmesh.new(); bm.from_mesh(obj.data); bm.verts.ensure_lookup_table()
         bmesh.ops.delete(bm, geom=[v for v in bm.verts if island[v.index] != main], context='VERTS')
         if subdivide:
-            bmesh.ops.subdivide_edges(bm, edges=[e for e in bm.edges if field(e.verts[0].co) < .03 or field(e.verts[1].co) < .03],
+            inside = (lambda f: abs(f) < near) if near else (lambda f: f < .03)
+            bmesh.ops.subdivide_edges(bm, edges=[e for e in bm.edges if inside(field(e.verts[0].co)) or inside(field(e.verts[1].co))],
                                       cuts=subdivide, use_grid_fill=True, smooth=0.6)
         cut(bm, field)
         moved = {v: displace(v.co.copy(), v.normal.copy()) for v in bm.verts}
@@ -109,12 +131,17 @@ if MODE == "geometry":
     SLEEVE_END, HEM = ELBOW_X + .035, .905
     neck_y = bone_head("Neck").y
     def gap(z): return .036 + .022 * smooth((z - 1.33) / .16)        # half-width of the open front
+    def neckline(p, lift=0.0):
+        # Base of the neck: low at the front (the notch above the breastbone), higher at the back (C7). Above this
+        # nothing is worn, so garments can never ride up over the jaw.
+        # A rounded front: lowest at the centre, rising toward the sides of the neck.
+        return p.z - (1.48 + lift + .022 * smooth(abs(p.x) / .075) + .065 * smooth((p.y + .06) / .12))
     def shirt_field(p):
         neck_hole = min(.072 - math.hypot(p.x, (p.y - neck_y + .012) / 1.15), p.z - 1.45)
         front_gap = min(gap(p.z) - abs(p.x), -(p.y + .025))          # positive inside the opening (front only)
-        return max(HEM - p.z, abs(p.x) - SLEEVE_END, p.z - 1.62, neck_hole, front_gap)
+        return max(HEM - p.z, abs(p.x) - SLEEVE_END, p.z - 1.62, neck_hole, front_gap, neckline(p, .03))
     def shirt_displace(p, n):
-        t = .010 if abs(p.x) < .19 else .015
+        t = .016 if abs(p.x) < .19 else .022                          # clear of the tee underneath
         q = p + n * t
         hang = smooth((1.03 - p.z) / .1)                              # loose over the hips
         r = Vector((p.x, p.y + .005, 0))
@@ -142,15 +169,68 @@ if MODE == "geometry":
         for v in new:
             out = Vector((0, v.co.y - c.y, v.co.z - c.z)).normalized()
             v.co += Vector((-side * .05, 0, 0)) + out * .01
-    # Inside of the shirt: a flipped copy just under the outside, since game engines cull back faces and the
-    # open front, collar and cuffs would show through.
-    bm.normal_update()
-    normals = {v: v.normal.copy() for v in bm.verts}
-    dup = bmesh.ops.duplicate(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:])
-    for old, new in dup["vert_map"].items():
-        if isinstance(old, bmesh.types.BMVert) and old in normals: new.co -= normals[old] * .002
-    bmesh.ops.reverse_faces(bm, faces=[g for g in dup["geom"] if isinstance(g, bmesh.types.BMFace)])
-    bm.normal_update(); bm.to_mesh(shirt.data); bm.free()
+    double_sided(bm); bm.to_mesh(shirt.data); bm.free()
+
+    # --- Tee, jeans and jacket ------------------------------------------------------------------
+    # Real garments over the body instead of colour painted on the skin, so the silhouette has cloth volume:
+    # a tee that hangs over the waistband, straight-leg jeans and (for townspeople) a long-sleeved jacket.
+    SHOULDER_X, WRIST_X = abs(bone_head("LeftArm").x), abs(bone_head("LeftHand").x)
+    KNEE_Z = bone_head("LeftLeg").z
+    def neck_hole(p, r): return min(r - math.hypot(p.x, (p.y - neck_y + .012) / 1.15), p.z - 1.45)
+    TEE_HEM, TEE_SLEEVE = .895, SHOULDER_X + .16
+    def tee_field(p): return max(TEE_HEM - p.z, abs(p.x) - TEE_SLEEVE, p.z - 1.62, neck_hole(p, .068), neckline(p))
+    def tee_displace(p, n):
+        loose = smooth((1.0 - p.z) / .06)                              # hangs clear of the jeans waistband
+        sleeve = smooth((abs(p.x) - SHOULDER_X) / .04)
+        return p + n * (.005 + .019 * loose + .003 * sleeve)
+    tee = layer("Tee", tee_field, tee_displace, subdivide=1, near=.04)
+    JEANS_WAIST, JEANS_HEM = .945, .085
+    # Each leg's axis and half-width by height, for a straight leg below the knee.
+    legs = {}
+    for sx in (1, -1):
+        rows = []
+        for k in range(6, 82, 2):
+            z = k / 100
+            pts = [v.co for v in body.data.vertices if island[v.index] == main and abs(v.co.z - z) < .012 and v.co.x * sx > .004 and abs(v.co.x) < .25]
+            if len(pts) > 4:
+                rows.append((z, (min(p.x for p in pts) + max(p.x for p in pts)) / 2, (min(p.y for p in pts) + max(p.y for p in pts)) / 2))
+        legs[sx] = rows
+    def leg_at(sx, z):
+        rows = legs[sx]
+        if z <= rows[0][0]: return rows[0][1:]
+        for a, b in zip(rows, rows[1:]):
+            if z <= b[0]:
+                t = (z - a[0]) / (b[0] - a[0]); return (a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t)
+        return rows[-1][1:]
+    knee_r = {sx: max(Vector((v.co.x - leg_at(sx, KNEE_Z)[0], v.co.y - leg_at(sx, KNEE_Z)[1])).length
+                      for v in body.data.vertices if island[v.index] == main and abs(v.co.z - KNEE_Z) < .01 and v.co.x * sx > .004 and abs(v.co.x) < .25)
+              for sx in (1, -1)}
+    def jeans_field(p): return max(JEANS_HEM - p.z, p.z - JEANS_WAIST)
+    def jeans_displace(p, n):
+        q = p + n * (.009 + .002 * smooth((p.z - .87) / .05))         # the waistband sits a little proud
+        if p.z < KNEE_Z + .12 and abs(p.x) > .004:
+            sx = 1 if p.x > 0 else -1
+            cx, cy = leg_at(sx, p.z)
+            d = Vector((q.x - cx, q.y - cy)); r = d.length
+            target = knee_r[sx] + .011                                   # as wide as at the knee, down to the hem
+            w = smooth((KNEE_Z + .12 - p.z) / .14)
+            if r > 1e-4 and r < target: d *= (r + (target - r) * w * .85) / r
+            q.x, q.y = cx + d.x, cy + d.y
+        return q
+    jeans = layer("Jeans", jeans_field, jeans_displace, subdivide=1, near=.04)
+    JACKET_HEM, JACKET_CUFF = .835, WRIST_X - .025
+    def jacket_field(p): return max(JACKET_HEM - p.z, abs(p.x) - JACKET_CUFF, p.z - 1.63, neck_hole(p, .074), neckline(p, .01))
+    def jacket_displace(p, n): return p + n * (.017 + .012 * smooth((1.0 - p.z) / .1) + .004 * smooth((abs(p.x) - SHOULDER_X) / .05))
+    jacket = layer("Jacket", jacket_field, jacket_displace, subdivide=1, near=.04)
+    bm = bmesh.new(); bm.from_mesh(jacket.data); bm.normal_update()
+    ret = bmesh.ops.extrude_edge_only(bm, edges=[e for e in bm.edges if e.is_boundary and all(v.co.z > 1.44 for v in e.verts)])
+    for v in {g for g in ret["geom"] if isinstance(g, bmesh.types.BMVert)}:   # a short stand-up collar, lower in front
+        v.co += Vector((0, 0, .022 + .016 * smooth((v.co.y + .04) / .1))) + Vector((v.co.x, v.co.y - neck_y, 0)).normalized() * .004
+    double_sided(bm, near=.12); bm.to_mesh(jacket.data); bm.free()
+    for obj in (tee, jeans):
+        bm = bmesh.new(); bm.from_mesh(obj.data); double_sided(bm, near=.12); bm.to_mesh(obj.data); bm.free()
+    # Skin wholly under the tee and jeans is removed after skinning (below) so it can never poke through.
+    def hidden(p, margin=.012): return tee_field(p) < -margin or jeans_field(p) < -margin
 
     # --- Hair: short sides, volume on top swept up and back from the forehead --------------------
     head = [v.co for v in body.data.vertices if v.co.z > 1.66 and island[v.index] == main]
@@ -222,7 +302,7 @@ if MODE == "geometry":
     watch = bpy.context.object; watch.name = watch.data.name = "Watch"
 
     # Skin weights from the body for everything new; fresh UVs for every layer but the body.
-    for obj in (shirt, hair, shoes, watch):
+    for obj in (shirt, tee, jeans, jacket, hair, shoes, watch):
         obj.vertex_groups.clear()
         for o in scene.objects: o.select_set(o in (obj, rig))
         bpy.context.view_layer.objects.active = rig
@@ -243,9 +323,20 @@ if MODE == "geometry":
         bpy.ops.uv.smart_project(angle_limit=math.radians(55), island_margin=.006)
         bpy.ops.object.mode_set(mode='OBJECT')
 
+    isl = body.data.attributes.new("island", 'INT', 'POINT')
+    for i, v in enumerate(island): isl.data[i].value = v
+    bm = bmesh.new(); bm.from_mesh(body.data); bm.verts.ensure_lookup_table()
+    gone = [f for f in bm.faces if all(island[v.index] == main and hidden(v.co) for v in f.verts)]
+    bmesh.ops.delete(bm, geom=gone, context='FACES')
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+    bm.to_mesh(body.data); bm.free()
+    island = [d.value for d in body.data.attributes["island"].data]
+    body.data.attributes.remove(body.data.attributes["island"])
+    print("hidden skin faces removed:", len(gone))
+
     # Texture data: every layer's triangles in UV space with rest-pose positions and normals.
     info = {}
-    for obj in (body, shirt, hair, shoes, watch):
+    for obj in (body, shirt, tee, jeans, jacket, hair, shoes, watch):
         me = obj.data; me.calc_loop_triangles()
         uv = me.uv_layers.active.data
         tri = np.array([[l for l in t.loops] for t in me.loop_triangles])
@@ -264,6 +355,8 @@ if MODE == "geometry":
     for i in eyeballs: eyes["right" if centres[i].x < 0 else "left"] = centres[i][:]
     info["eyes"] = eyes
     info["hair"] = {"front": HF, "back": HB, "ear_y": EAR_Y, "ear_top": EAR_TOP}
+    info["garments"] = {"neck_y": neck_y, "tee_hem": TEE_HEM, "tee_sleeve": TEE_SLEEVE, "jeans_waist": JEANS_WAIST, "jeans_hem": JEANS_HEM,
+                        "jacket_hem": JACKET_HEM, "jacket_cuff": JACKET_CUFF, "knee_z": KNEE_Z, "shoulder_x": SHOULDER_X}
     json.dump(info, open(os.path.join(WORK, "layers.json"), "w"), indent=1)
     print("layers", json.dumps({k: v for k, v in info.items() if k != "eyes"}), "eyes", eyes)
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(WORK, "csi_layers.blend"))
@@ -272,7 +365,7 @@ if MODE == "assemble":
     WORK, OUT = args[1], args[2]
     bpy.ops.wm.open_mainfile(filepath=os.path.join(WORK, "csi_layers.blend"))
     scene = bpy.context.scene
-    finish = {"Body": (.0, .42), "Shirt": (.0, .3), "Hair": (.0, .45), "Shoes": (.0, .3), "Watch": (.6, .55)}
+    finish = {"Body": (.0, .42), "Shirt": (.0, .3), "Tee": (.0, .25), "Jeans": (.0, .3), "Jacket": (.0, .35), "Hair": (.0, .45), "Shoes": (.0, .3), "Watch": (.6, .55)}
     for name in LAYERS:
         obj = scene.objects[name]
         mat = bpy.data.materials.new("Barry " + name.lower()); mat.use_nodes = True

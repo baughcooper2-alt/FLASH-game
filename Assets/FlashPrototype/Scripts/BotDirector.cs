@@ -47,7 +47,9 @@ namespace FlashGame
         public string SiteName => Sites[siteIndex].name;
         public Vector3 SiteCentre => Sites[siteIndex].position;
         public float NextWaveIn => WaveActive ? 0 : Mathf.Max(0, nextWave - clock);
-        public int Remaining { get { int n = 0; foreach (var b in BotEnemy.All) if (!b.Dead) n++; return n; } }
+        public int Remaining { get { int n = 0; foreach (var b in BotEnemy.All) if (!b.Dead && !b.Human) n++; return n; } }
+        public Transform Player => runner != null ? runner.transform : null;
+        public static readonly Color BulletYellow = new Color(1, .82f, .35f);
         public event Action<float, Vector3> PlayerHit;
         public static readonly Color BoltRed = new Color(1, .12f, .08f);
 
@@ -170,11 +172,27 @@ namespace FlashGame
             PlayerHit?.Invoke(damage, from);
         }
 
-        public void FireBolt(BotEnemy bot, Vector3 from, Transform target)
+        public void FireBolt(BotEnemy bot, Vector3 from, Transform target, bool bullet = false)
         {
             Vector3 aim = (target.position + Vector3.up * 1.1f) - from;
-            projectiles.Add(new Projectile { position = from, velocity = aim.normalized * 42, life = 2.5f, damage = 9, color = BoltRed });
-            fx.Sparks(from, aim, 6, BoltRed, 5);
+            // People fire real bullets: faster, a little weaker, a yellow tracer and a muzzle flash.
+            projectiles.Add(new Projectile { position = from, velocity = aim.normalized * (bullet ? 75 : 42), life = 2, damage = bullet ? 7 : 9, color = bullet ? BulletYellow : BoltRed });
+            fx.Sparks(from, aim, 6, bullet ? BulletYellow : BoltRed, 5);
+        }
+        // An armed person (a Townsperson body) who fights with the bots' combat code.
+        public BotEnemy SpawnHuman(BotKind kind, Vector3 position, Vector3 home, System.Random rng)
+        {
+            var prefab = Resources.Load<GameObject>("Townsperson");
+            if (prefab == null) return null;
+            var go = Instantiate(prefab, transform);
+            go.name = kind.ToString();
+            var person = go.GetComponent<Townsperson>();
+            person.Dress(rng, true);
+            person.HoldGun(true);
+            foreach (var t in go.GetComponentsInChildren<Transform>(true)) t.gameObject.layer = 0;
+            var bot = go.AddComponent<BotEnemy>();
+            bot.Init(this, kind, position, home);
+            return bot;
         }
 
         public void ThrowLightning(Vector3 from, Vector3 velocity, BotEnemy homing, float damage, Color color, int chains)

@@ -6,6 +6,9 @@ Shader "FlashGame/Prototype"
         _Glow("Unlit amount", Range(0,1)) = 0
         _Surface("Surface pattern", Float) = 0
         _WindowStyle("Facade variation", Float) = 0
+        _Facade("Window grid: bay width, storey height, window width, window height", Vector) = (3, 3.4, .55, .6)
+        _Facade2("Ground storey height, lit windows, trim colour mix, unused", Vector) = (4.5, .12, .5, 0)
+        _VertexTint("Colour and glow from vertex colours", Float) = 0
     }
     SubShader
     {
@@ -26,6 +29,9 @@ Shader "FlashGame/Prototype"
                 half _Glow;
                 half _Surface;
                 half _WindowStyle;
+                float4 _Facade;
+                float4 _Facade2;
+                half _VertexTint;
             CBUFFER_END
             // S.T.A.R. Labs interior lighting, set globally by StarLabs.cs. A zero radius disables it.
             float4 _LabZone;            // x,z centre; y interior ceiling; w radius
@@ -65,8 +71,8 @@ Shader "FlashGame/Prototype"
                 float falloff = 1 - d2 / r2;
                 return tint * falloff * falloff * (saturate(dot(n, l * rsqrt(max(d2, 1e-4)))) * .9 + .1);
             }
-            struct Attributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; };
-            struct Varyings { float4 positionCS : SV_POSITION; half shade : TEXCOORD0; half fog : TEXCOORD1; float3 world:TEXCOORD2; float3 normal:TEXCOORD3; };
+            struct Attributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; half4 color : COLOR; };
+            struct Varyings { float4 positionCS : SV_POSITION; half shade : TEXCOORD0; half fog : TEXCOORD1; float3 world:TEXCOORD2; float3 normal:TEXCOORD3; half4 color : TEXCOORD4; };
             Varyings vert(Attributes input)
             {
                 Varyings output;
@@ -76,11 +82,15 @@ Shader "FlashGame/Prototype"
                 output.normal=normalWS;
                 output.shade = 0.55h + 0.45h * saturate(dot(normalWS, normalize(float3(-0.4, 0.8, -0.25))));
                 output.fog = ComputeFogFactor(output.positionCS.z);
+                output.color = input.color;
                 return output;
             }
             half4 frag(Varyings input, bool front : SV_IsFrontFace) : SV_Target
             {
-                half3 color = _BaseColor.rgb * lerp(input.shade, 1.0h, _Glow);
+                // Merged city detail carries each prop's colour (rgb) and glow (a) in its vertices.
+                half3 baseColor = _VertexTint > .5 ? input.color.rgb : _BaseColor.rgb;
+                half glow = _VertexTint > .5 ? input.color.a : _Glow;
+                half3 color = baseColor * lerp(input.shade, 1.0h, glow);
                 float3 n = normalize(input.normal);
                 float2 uv = FaceUV(input.world, n);
                 // Pattern brightness is tracked separately so glowing surfaces keep their pattern.
@@ -113,6 +123,88 @@ Shader "FlashGame/Prototype"
                     float stud = step(.42, Hash(floor(g))) * smoothstep(.3, .2, length(f));
                     pattern *= (1 + stud * clamp(f.y * 3, -.6, .9)) * (1 - .55 * GridLine(uv, 1.4, .015));
                 }
+                if (abs(_Surface - 9) < .5 && abs(n.y) < .5)
+                {
+                    // Masonry facade with punched windows. _WindowStyle: 0 brick, 1 stone blocks, 2 concrete panels,
+                    // 3 painted stucco. Windows sit on a grid of bays and storeys above the ground storey.
+                    float u = abs(n.x) > .5 ? input.world.z : input.world.x, h = input.world.y;
+                    float2 wall = float2(u, h);
+                    if (_WindowStyle < .5)
+                    {
+                        float row = floor(h / .076);
+                        float2 b = float2((u + fmod(row, 2) * .11) / .22, h / .076);
+                        float2 f = frac(b);
+                        float mortar = step(f.x, .045) + step(f.y, .12);
+                        pattern *= lerp(.82 + .3 * Hash(floor(b)), .62, saturate(mortar));
+                    }
+                    else if (_WindowStyle < 1.5)
+                    {
+                        float2 b = float2(u / 1.2 + fmod(floor(h / .6), 2) * .5, h / .6);
+                        float2 f = frac(b);
+                        pattern *= lerp(.9 + .14 * Hash(floor(b)), .7, saturate(step(f.x, .015) + step(f.y, .03)));
+                    }
+                    else if (_WindowStyle < 2.5)
+                        pattern *= (1 - .35 * GridLine(wall, _Facade.y, .012)) * (.92 + .12 * Hash(floor(wall / _Facade.y)));
+                    else
+                        pattern *= .92 + .1 * Hash(floor(wall * 3)) * Hash(floor(wall * 11));
+                    // Grime streaks down from the windows and darker toward the street.
+                    pattern *= .88 + .12 * saturate(h / 6) - .05 * Hash(float2(floor(u * 2), 0)) * saturate(frac(h / _Facade.y) * 1.2);
+                    if (h > _Facade2.x)
+                    {
+                        float2 g = float2(u / _Facade.x, (h - _Facade2.x) / _Facade.y);
+                        float2 cell = frac(g) - .5;
+                        float2 halfSize = float2(_Facade.z, _Facade.w) * .5;
+                        float2 aa = max(fwidth(g), 1e-4);
+                        float2 inside = smoothstep(halfSize + aa, halfSize - aa, abs(cell - float2(0, .05)));
+                        float window = inside.x * inside.y;
+                        // Sill and lintel: lighter bands just below and above each window.
+                        float sill = step(abs(cell.x), halfSize.x + .04) * step(abs(cell.y + .05 - halfSize.y - .04), .035);
+                        float lintel = step(abs(cell.x), halfSize.x + .03) * step(abs(cell.y - .05 - halfSize.y - .035), .03);
+                        color = lerp(color, _BaseColor.rgb * 1.35, saturate(sill + lintel) * _Facade2.z);
+                        float seed = Hash(floor(g));
+                        float3 viewDir = normalize(GetCameraPositionWS() - input.world);
+                        float fresnel = pow(1 - saturate(abs(dot(n, viewDir))), 3);
+                        float3 glassCol = lerp(float3(.06, .08, .1), float3(.42, .52, .6), saturate(fresnel * .9 + cell.y * .4 + .25));
+                        glassCol = lerp(glassCol, float3(.95, .78, .5), step(1 - _Facade2.y, seed) * .7);    // a few lit rooms
+                        // Mullion and frame.
+                        float frame = 1 - step(abs(cell.x), halfSize.x - .03) * step(abs(cell.y - .05), halfSize.y - .03);
+                        float mull = step(abs(cell.x), .012);
+                        glassCol = lerp(glassCol, float3(.12, .12, .13), saturate(frame + mull));
+                        color = lerp(color * pattern, glassCol * input.shade, window);
+                        pattern = 1;
+                    }
+                }
+                if (abs(_Surface - 10) < .5) // Sidewalk paving slabs with joints, stains and gum spots
+                {
+                    float2 p = input.world.xz / 1.5;
+                    float joint = GridLine(input.world.xz, 1.5, .012);
+                    float stain = smoothstep(.55, .8, Hash(floor(p * .5)) * Hash(floor(p * 1.3 + 7)));
+                    float gum = step(.985, Hash(floor(input.world.xz * 9)));
+                    pattern *= (1 - .3 * joint) * (.9 + .12 * Hash(floor(p))) * (1 - .18 * stain) * (1 - .4 * gum);
+                }
+                if (abs(_Surface - 11) < .5) // Worn asphalt: aggregate, patches, cracks
+                {
+                    float2 p = input.world.xz;
+                    float grain = Hash(floor(p * 14)) * .5 + Hash(floor(p * 3.1)) * .5;
+                    float patch = step(.8, Hash(floor(p / 9)));
+                    float crack = 1 - smoothstep(0, .05, abs(frac(p.x * .13 + sin(p.y * .21) * .6) - .5) - .45);
+                    pattern *= (.86 + .2 * grain) * (1 - .1 * patch) * (1 - .25 * crack * step(.7, Hash(floor(p / 6))));
+                }
+                if (abs(_Surface - 12) < .5) // Shop window: reflective glass over a lit interior
+                {
+                    float3 viewDir = normalize(GetCameraPositionWS() - input.world);
+                    float fresnel = pow(1 - saturate(abs(dot(n, viewDir))), 2);
+                    float u = abs(n.x) > .5 ? input.world.z : input.world.x;
+                    float shelves = step(.5, frac(input.world.y * 2.2)) * .25 + .75;
+                    // Lit shelves and goods behind the glass, warm toward the ceiling; sky and street reflected on top.
+                    float goods = Hash(float2(floor(u * 3), floor(input.world.y * 4.4)));
+                    float3 inside = _BaseColor.rgb * shelves * (.55 + .7 * goods) * (.7 + .5 * saturate((input.world.y - .8) / 2.5));
+                    float3 sky = lerp(float3(.16, .19, .22), float3(.5, .6, .68), saturate(-dot(viewDir, float3(0, 1, 0)) + .4));
+                    color = lerp(inside, sky, saturate(fresnel * .85 + .18));
+                    emissive = 0;
+                }
+                if (abs(_Surface - 13) < .5) // Flat roof membrane with seams
+                    pattern *= (1 - .25 * GridLine(input.world.xz, 4, .03)) * (.9 + .15 * Hash(floor(input.world.xz / 2)));
                 color *= pattern;
                 if (abs(_Surface - 8) < .5) // Glowing grid lines
                     emissive = GridLine(uv, _WindowStyle > 0 ? _WindowStyle : 1.2, .03);
@@ -167,7 +259,7 @@ Shader "FlashGame/Prototype"
                     Light sun=GetMainLight(TransformWorldToShadowCoord(input.world));
                     color*=lerp(.48,1,sun.shadowAttenuation*(.65+.35*saturate(dot(normalize(input.normal),sun.direction))));
                 }
-                color=lerp(color,_BaseColor.rgb*pattern,_Glow);
+                color=lerp(color,baseColor*pattern,glow);
                 color=lerp(color,half3(.9,.95,1),emissive);
                 return half4(MixFog(color, input.fog), 1);
             }

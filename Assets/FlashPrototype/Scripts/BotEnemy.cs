@@ -3,10 +3,13 @@ using UnityEngine;
 
 namespace FlashGame
 {
-    public enum BotKind { Striker, Gunner, Heavy }
+    public enum BotKind { Striker, Gunner, Heavy, Robber, Mugger }
 
     // An enemy robot (the supplied enemy-bot model). Strikers and Heavies brawl; Gunners keep their distance
     // and fire energy bolts. Bots can be stunned, slowed, launched, knocked back and caught in vortices.
+    // Robbers and Muggers are armed people (a Townsperson body) using the same combat: they hold a hostage until
+    // the Flash arrives (Hold), shoot like Gunners (Fight) or run with the loot (Flee), and are knocked out, not
+    // destroyed.
     public sealed class BotEnemy : MonoBehaviour
     {
         public static readonly List<BotEnemy> All = new List<BotEnemy>();
@@ -17,6 +20,12 @@ namespace FlashGame
         public bool Trapped => vortex != null;
         public bool Stunned => stun > 0;
         public bool Aggro;
+        public enum Role { Fight, Hold, Flee }
+        public Role Mode = Role.Fight;
+        public Vector3 FleeTo;
+        public Townsperson Person;
+        public bool Human => Kind >= BotKind.Robber;
+        public bool Armed => Kind == BotKind.Gunner || Human;
         public Vector3 Chest => transform.position + Vector3.up * (1.1f * scale);
         public string StateLabel => Dead ? "" : Trapped ? "CAUGHT" : Stunned ? "STUNNED" : slowTimer > 0 ? "SLOWED" : "";
 
@@ -38,9 +47,9 @@ namespace FlashGame
         {
             director = owner; Kind = kind; home = homePosition;
             scale = kind == BotKind.Heavy ? 1.3f : 1;
-            transform.localScale = Vector3.one * scale;
+            if (!Human) transform.localScale = Vector3.one * scale;
             transform.position = position;
-            MaxHealth = Health = kind switch { BotKind.Heavy => 260, BotKind.Gunner => 80, _ => 110 };
+            MaxHealth = Health = kind switch { BotKind.Heavy => 260, BotKind.Gunner => 80, BotKind.Robber => 60, BotKind.Mugger => 45, _ => 110 };
             controller = gameObject.AddComponent<CharacterController>();
             controller.height = 1.9f; controller.radius = .38f; controller.center = new Vector3(0, .95f, 0);
             controller.stepOffset = .35f; controller.skinWidth = .04f; controller.minMoveDistance = 0;
@@ -57,6 +66,10 @@ namespace FlashGame
                 head = animator.GetBoneTransform(HumanBodyBones.Head);
             }
             block = new MaterialPropertyBlock();
+            lastPosition = position;
+            strafe = Random.value < .5f ? -1 : 1;
+            All.Add(this);
+            if (Human) { Person = GetComponent<Townsperson>(); return; }
             // Glowing visor so bots read at a distance and against the white city.
             var v = GameObject.CreatePrimitive(PrimitiveType.Cube);
             v.name = "Visor"; DestroyImmediate(v.GetComponent<Collider>());
@@ -65,9 +78,6 @@ namespace FlashGame
             visor = v.GetComponent<Renderer>();
             visor.sharedMaterial = director.VisorMaterial(kind);
             visor.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            lastPosition = position;
-            strafe = Random.value < .5f ? -1 : 1;
-            All.Add(this);
         }
         void OnDestroy() => All.Remove(this);
 
@@ -164,6 +174,20 @@ namespace FlashGame
 
         Vector3 Think(float dt)
         {
+            if (Human && Mode != Role.Fight)
+            {
+                // Holding someone at gunpoint until the Flash shows up (or anyone hits them); running with the loot.
+                if (Person != null) Person.Posing = Mode == Role.Hold ? Townsperson.Pose.AimGun : Townsperson.Pose.None;
+                if (Mode == Role.Hold)
+                {
+                    var player = director.Player;
+                    if (Aggro || (player != null && Vector3.Distance(player.position, transform.position) < 14)) { Mode = Role.Fight; Aggro = true; }
+                    return Vector3.zero;
+                }
+                Vector3 run = FleeTo - transform.position; run.y = 0;
+                return run.magnitude > 1 ? Steer(run.normalized) * 6.8f : Vector3.zero;
+            }
+            if (Person != null) Person.Posing = Townsperson.Pose.None;
             target = director.ChooseTarget(this, out bool isDecoy);
             if (target == null)
             {
@@ -175,9 +199,9 @@ namespace FlashGame
             float distance = to.magnitude;
             Vector3 dir = distance > .01f ? to / distance : transform.forward;
             if (attackTimer > 0) return AttackStep(dt, distance, isDecoy);
-            if (Kind == BotKind.Gunner)
+            if (Armed)
             {
-                if (cooldown <= 0 && distance < 40) { attackTimer = attackLength = .7f; striking = false; return Vector3.zero; }
+                if (cooldown <= 0 && distance < 40) { attackTimer = attackLength = Human ? .55f : .7f; striking = false; return Vector3.zero; }
                 if (distance > 26) return Steer(dir) * 5;
                 if (distance < 12) return Steer(-dir) * 4;
                 return Steer(Vector3.Cross(Vector3.up, dir) * strafe) * 2.5f;
@@ -194,10 +218,10 @@ namespace FlashGame
             if (!striking && attackTimer < attackLength * .4f)
             {
                 striking = true;
-                if (Kind == BotKind.Gunner) director.FireBolt(this, rightHand != null ? rightHand.position : Chest, target);
+                if (Armed) director.FireBolt(this, rightHand != null ? rightHand.position : Chest, target, Human);
                 else if (distance < (Kind == BotKind.Heavy ? 3.2f : 2.7f)) director.MeleeHit(this, target, Kind == BotKind.Heavy ? 22 : 12);
             }
-            if (attackTimer <= 0) { cooldown = Kind == BotKind.Gunner ? 1.6f : 1.1f; attackTimer = 0; }
+            if (attackTimer <= 0) { cooldown = Kind == BotKind.Gunner ? 1.6f : Human ? 1.3f : 1.1f; attackTimer = 0; }
             return Vector3.zero;
         }
 
@@ -220,13 +244,14 @@ namespace FlashGame
             if (animator == null || !animator.isActiveAndEnabled) return;
             animator.SetFloat("Speed", speed, .1f, Time.deltaTime);
             animator.SetFloat("RunRate", speed > 5 ? .55f : 1);
+            if (Human) animator.SetBool("Grounded", true);
         }
 
         void LateUpdate()
         {
             if (Dead) return;
             // Visor rides the head; strikes and gun shots are posed procedurally over the walk cycle.
-            if (head != null)
+            if (head != null && visor != null)
             {
                 visor.transform.position = head.position + transform.forward * .12f * scale + transform.up * .04f * scale;
                 visor.transform.rotation = transform.rotation;
@@ -236,8 +261,8 @@ namespace FlashGame
                 float k = 1 - attackTimer / attackLength;
                 Vector3 toTarget = (target.position + Vector3.up - (rightUpper != null ? rightUpper.position : Chest)).normalized;
                 Vector3 windup = (-transform.forward * .4f + Vector3.up).normalized;
-                Vector3 dir = Kind == BotKind.Gunner ? toTarget : k < .6f ? Vector3.Slerp(windup, toTarget, k * k) : toTarget;
-                float weight = Kind == BotKind.Gunner ? Mathf.Clamp01(k * 4) : Mathf.Sin(Mathf.PI * Mathf.Clamp01(k * 1.15f));
+                Vector3 dir = Armed ? toTarget : k < .6f ? Vector3.Slerp(windup, toTarget, k * k) : toTarget;
+                float weight = Armed ? Mathf.Clamp01(k * 4) : Mathf.Sin(Mathf.PI * Mathf.Clamp01(k * 1.15f));
                 Limbs.Aim(rightUpper, rightLower, rightHand, dir, weight);
                 if (Kind == BotKind.Heavy) Limbs.Aim(leftUpper, leftLower, leftHand, dir, weight);
             }
@@ -250,7 +275,7 @@ namespace FlashGame
                 skin.SetPropertyBlock(block);
             }
             bool blink = Stunned && Mathf.Repeat(Time.time * 8, 1) > .5f;
-            visor.enabled = !blink;
+            if (visor != null) visor.enabled = !blink;
         }
 
         void Die()
@@ -258,6 +283,13 @@ namespace FlashGame
             if (Dead) return;
             Dead = true;
             if (vortex != null) vortex = null;
+            if (Human)
+            {
+                // Knocked out cold, left for the police; the crime clears the body away.
+                controller.enabled = false;
+                if (Person != null) Person.KnockDown();
+                return;
+            }
             director.OnBotDestroyed(this);
             Destroy(gameObject);
         }

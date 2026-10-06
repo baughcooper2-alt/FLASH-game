@@ -34,6 +34,11 @@ public static class IdleClipBuilder
             Vector3 Local(HumanBodyBones b) => go.transform.InverseTransformPoint(B(b).position);
             Vector3 Dir(HumanBodyBones a, HumanBodyBones b) => (Local(b) - Local(a)).normalized;
             var referenceHead = Quaternion.Inverse(go.transform.rotation) * B(HumanBodyBones.Head).rotation;
+            // Palms face the floor in the T-pose; remember each hand's rotation there to track where its palm points.
+            var referenceHand = new Dictionary<HumanBodyBones, Quaternion>();
+            foreach (var h in new[] { HumanBodyBones.LeftHand, HumanBodyBones.RightHand })
+                referenceHand[h] = Quaternion.Inverse(go.transform.rotation) * B(h).rotation;
+            Vector3 Palm(HumanBodyBones h) => (Quaternion.Inverse(go.transform.rotation) * B(h).rotation) * Quaternion.Inverse(referenceHand[h]) * Vector3.down;
             // Soles are flat in the mesh's bind pose (the avatar's reference pose tips the toes down when it lines
             // the feet up with Mixamo's): remember how steeply each foot and toe bone points down there.
             float Drop(Vector3 d) => Mathf.Asin(Mathf.Clamp(-d.y, -1, 1)) * Mathf.Rad2Deg;
@@ -95,14 +100,19 @@ public static class IdleClipBuilder
                     Solve(new[] { side + " Upper Leg In-Out" }, () => Mathf.Abs(Local(ankle).x - Local(hip).x - s * .03f));
                     Solve(new[] { side + " Lower Leg Stretch" }, () => Mathf.Abs(Vector3.Angle(Dir(hip, knee), Dir(knee, ankle)) - 7));
                     Solve(new[] { side + " Arm Down-Up" }, () => Mathf.Abs(Away(Dir(shoulder, elbow), s) - 9));
-                    Solve(new[] { side + " Arm Front-Back" }, () => Mathf.Abs(Pitch(Dir(shoulder, elbow)) - 4));
-                    Solve(new[] { side + " Forearm Stretch" }, () => Mathf.Abs(Vector3.Angle(Dir(shoulder, elbow), Dir(elbow, wrist)) - 18));
+                    // Arms hang at the sides with a small bend; hands beside the thighs, not in front of them.
+                    Solve(new[] { side + " Arm Front-Back" }, () => Mathf.Abs(Pitch(Dir(shoulder, elbow)) - 0));
+                    Solve(new[] { side + " Forearm Stretch" }, () => Mathf.Abs(Vector3.Angle(Dir(shoulder, elbow), Dir(elbow, wrist)) - 11));
                     // Feet flat on the floor, toes level.
                     var toes = side == "Left" ? HumanBodyBones.LeftToes : HumanBodyBones.RightToes;
                     Solve(new[] { side + " Foot Up-Down" }, () => Mathf.Abs(Drop(Dir(ankle, toes)) - flat[ankle]));
                     Solve(new[] { side + " Toes Up-Down" }, () => Mathf.Abs(Drop((TipOf(toes) - Local(toes)).normalized) - flat[toes]));
                     // Turn the upper arm so the elbow bends forward, not in toward the hips.
                     Solve(new[] { side + " Arm Twist In-Out" }, () => Mathf.Abs(Away(Dir(elbow, wrist), s) - 6) + Mathf.Max(0, -Pitch(Dir(elbow, wrist))));
+                    // Palms turned in toward the thighs (a touch back), as people stand, not facing forward.
+                    var hand = wrist;
+                    var inward = new Vector3(-s, 0, -.3f).normalized;
+                    Solve(new[] { side + " Forearm Twist In-Out" }, () => Vector3.Angle(Palm(hand), inward));
                 }
             }
             var standing = (float[])muscles.Clone();

@@ -22,6 +22,8 @@ namespace FlashGame
             var facades=new Material[4];
             Color[] colors={new Color(.38f,.46f,.49f),new Color(.59f,.56f,.5f),new Color(.29f,.37f,.42f),new Color(.42f,.29f,.23f)};
             for(int i=0;i<4;i++){facades[i]=w.Material("Facade grid "+i,colors[i]);facades[i].SetFloat("_Surface",1);facades[i].SetFloat("_WindowStyle",i);}
+            CityBlocks.Begin(w,root,facades);
+            asphalt=CityBlocks.AsphaltMaterial;
             w.Box("City foundation",new Vector3(0,-1,0),new Vector3(1560,2,1560),asphalt);
             w.Box("Regional landscape",new Vector3(-1450,-6,0),new Vector3(4400,4,5000),grass);
             for(int i=0;i<15;i++)
@@ -45,19 +47,19 @@ namespace FlashGame
             {
                 float cx=x*130+65,cz=z*130+65;
                 if(Mathf.Abs(cx-LabCenter.x)<190 && Mathf.Abs(cz-LabCenter.z)<160)continue;
-                w.Box("Raised city block",new Vector3(cx,.12f,cz),new Vector3(106,.24f,106),concrete);
-                if((x+z+20)%9==0)
+                w.Box("Raised city block",new Vector3(cx,.12f,cz),new Vector3(106,.24f,106),CityBlocks.SidewalkMaterial);
+                if((x+z+20)%9==0 && !CityLandmarks.Claims(cx,cz))
                 {
                     w.Box("Neighbourhood park",new Vector3(cx,.28f,cz),new Vector3(92,.12f,92),grass,false);
                     for(int t=0;t<9;t++)Tree(w,root,new Vector3(cx-32+(t%3)*32,0,cz-32+(t/3)*32),bark,foliage);
+                    CityBlocks.Park(cx,cz);
                     continue;
                 }
-                float h=45+random.Next(95)+(x>0?random.Next(110):0);
-                float bw=54+random.Next(20),depth=60+random.Next(20);
-                bool enterable=(x+z+20)%7==0;
-                Building(w,new Vector3(cx,0,cz),bw,depth,h,facades[random.Next(4)],stone,steel,glass,enterable);
-                for(int t=-1;t<=1;t+=2)Tree(w,root,new Vector3(cx+t*45,0,cz-43),bark,foliage);
+                // Lots, storefronts, alleys and street furniture (CityBlocks); landmarks where they stand.
+                CityBlocks.Block(cx,cz);
             }
+            for(int i=-5;i<=5;i++) for(int j=-5;j<=5;j++)
+                if(!OnLabPlaza(i*130,j*130))CityBlocks.Intersection(i*130,j*130);
             // Continuous promenade, with a barrier except where bridges meet the street grid.
             w.Box("Waterfront promenade",new Vector3(763,.25f,0),new Vector3(30,.5f,1560),concrete);
             for(int z=-750;z<=750;z+=30)
@@ -78,6 +80,7 @@ namespace FlashGame
             foreach(float z in new[]{-330f,270f})
                 w.Labels.Add(new WorldLabel(new Vector3(772,5,z),"WATER RUN\nKeep above 24 m/s"));
             Tunnel(w);
+            CityBlocks.End();
             CombineDistrict(root);
         }
         // Covered stretch of the acceleration straight for ceiling running: wall-run a side wall into

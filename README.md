@@ -24,7 +24,7 @@ The district, runner and HUD are created when Play starts. The scene intentional
 | Punch (hold near a bot: rapid punches) | Left mouse | X |
 | Lightning throw (hold: ground lightning) | Right mouse | B |
 | Afterimage decoys | V | R3 (click right stick) |
-| Special power, or the context action shown | G / middle mouse | Y |
+| Special power, or the context action shown (grab / drop a bomb) | G / middle mouse | Y |
 | Pick special power | Z / X, mouse wheel | D-pad left / right |
 | Speed perception | Hold F | Hold RT |
 | Start / restart circuit | T | D-pad up |
@@ -39,9 +39,13 @@ The district, runner and HUD are created when Play starts. The scene intentional
 
 **Environmental powers.** Run circles to make a tornado (a whirlpool on water); vortices trap bots, smother fires and pull smoke or gas away (reverse tornado). Tornado Arms and Vacuum Blast extinguish fires; Speed Dig frees trapped civilians; Rapid Repair and Rapid Construction assemble scattered or stacked pieces. Four rotating emergencies (car fire, gas leak, building collapse, shelter construction) use them, with civilians who cough, wait and cheer.
 
+**Crimes.** Alternating with the rescues: an **armed robbery** at the Corner Mart (masked robbers hold the clerk and customers at gunpoint, a lookout watches the door, and they open fire when the Flash shows up), a **mugging at gunpoint** in an alley (arrive in time, or chase the mugger down when he runs with the bag), and a **bomb threat** on a busy corner (grab it, sprint to the harbour and drop it in deep water past the sea wall before the countdown ends). Criminals are people, not robots: every power works on them, and they are knocked out rather than destroyed.
+
+**City.** Every block is a row of separate buildings around a service alley: brick walk-ups with fire escapes and rooftop water tanks, stone and concrete mid-rises with punched windows, glass towers downtown. Ground floors have storefronts with named signs, lit shop windows and awnings. Sidewalks carry street lamps, trees, hydrants, bins, newspaper boxes, mailboxes, benches, bus stops, parking meters, trash bags and litter; streets have crosswalks, stop lines, traffic signals, manholes and parked cars and taxis; alleys have dumpsters, graffiti, pallets and puddles. Townspeople walk the sidewalks and duck when the Flash blasts past. Landmarks with walk-in interiors: **CCPD** (an Art Deco tower after Vancouver City Hall, the show's CCPD: lobby, bullpen, a ramp up to Barry's CSI lab, a police lot out back), **CC Jitters** across the avenue (counter, espresso machine, pastry case, menu boards, tables), and the **Corner Mart**.
+
 **Enemies.** The supplied enemy bot, rigged as a Humanoid and animated with its own walk plus shared stand and run clips. Strikers brawl, Gunners keep their distance and fire bolts, Heavies hit hard and resist knockback. Waves warp in at rotating city sites. Health regenerates when out of combat; the Speed Force meter fills with speed and pays for powers.
 
-**Character and look.** Realistic Flash (the supplied high-detail model, rigged in Blender) using the supplied Mixamo run; 20 suits including Barry's Seasons 1 to 9 (gold boots from Season 8), Reverse-Flash, Zoom, Kid Flash, Jesse Quick, XS, Godspeed and comics suits; Speed Force lightning in each suit's colour with bloom. Barry Allen out of costume is the last two looks in the same picker: **Barry Allen** (white tee, jeans, sneakers) and **CSI Barry** (open plaid overshirt and watch on top), built on the supplied skinny base mesh with the face of the Meshy CSI design; every power and the lightning work on him too. S.T.A.R. Labs, the 1.56 km waterfront city, traffic, a nine-gate circuit and the controller panel are unchanged.
+**Character and look.** Realistic Flash (the supplied high-detail model, rigged in Blender) using the supplied Mixamo run; 20 suits including Barry's Seasons 1 to 9 (gold boots from Season 8), Reverse-Flash, Zoom, Kid Flash, Jesse Quick, XS, Godspeed and comics suits; Speed Force lightning in each suit's colour with bloom. Barry Allen out of costume is the last two looks in the same picker: **Barry Allen** (white tee, jeans, sneakers) and **CSI Barry** (open plaid overshirt and watch on top), built on the supplied base mesh (reshaped to an athletic build, with real tee and jeans garments) with the face of the Meshy CSI design; every power and the lightning work on him too. A standing idle with arms at the sides and palms in is shared by everyone.
 
 Speeds are 7 / 28 / 65 / 130 metres per second. “Mach” and “Speed Force” are gameplay tier names, not literal canon velocity. Top prototype speed is about 291 mph. This scale keeps turns and collision testing useful in the small district. No stamina system.
 
@@ -65,7 +69,7 @@ Combat, villains, time travel, other maps and multiplayer remain planned. They a
 
 ## Project layout
 
-- `Assets/FlashPrototype/Scripts`: input, motor, camera, procedural visuals/world, circuit and scene coordinator.
+- `Assets/FlashPrototype/Scripts`: input, motor, camera, procedural visuals/world, circuit and scene coordinator. The city is `CityDistrict` (layout, waterfront, bridges), `CityBlocks` (lots, storefronts, alleys, street furniture, trash), `CityLandmarks` (CCPD, CC Jitters, Corner Mart) and `CityKit` (builds all of it into merged meshes and colliders); people are `Townsperson` and `Pedestrians`; crimes are `Crimes` with the emergencies.
 - `Assets/FlashPrototype/Shaders`: referenced prototype shader included in builds.
 - `Assets/FlashPrototype/Tests/Editor`: fast-crossing and movement-step tests.
 - `Assets/FlashPrototype/Character`: the realistic Flash (`Realistic`), Barry Allen out of costume (`Barry`), the shared locomotion controller and clips.
@@ -84,10 +88,11 @@ The user-supplied `the-flash.zip` contains a posed OBJ and textures, without a s
 `Assets/FlashPrototype/Character/Barry/BarryAllen.fbx` is the supplied skinny base mesh (1.83 m), rigged as a Humanoid, wearing the outfit and face of the Meshy "CSI" design: open plaid overshirt with rolled sleeves, white tee, dark jeans, black-and-white sneakers, a watch and short dark hair. **Flash → Configure Barry Allen** imports it, builds its materials and the two prefabs (`BarryAllen` hides the overshirt and watch, `CSIBarry` wears the full outfit) and saves them into the scene. The batch setup (`FlashRealisticSetup.ConfigureBatch`) runs it too. To rebuild the model from its sources (Blender 5.1):
 
 ```
-blender -b --python Tools/Blender/rig_tpose_mesh.py -- Male_07.obj BarryBase.fbx 1.83
+blender -b --python Tools/Blender/shape_body.py -- Male_07.obj Male_07_shaped.obj
+blender -b --python Tools/Blender/rig_tpose_mesh.py -- Male_07_shaped.obj BarryBase.fbx 1.83
 blender -b --python Tools/Blender/build_csi_barry.py -- geometry BarryBase.fbx work
 python3 Tools/csi_textures.py work "Tools/Blender/source/CSI Barry reference (front).jpg"
 blender -b --python Tools/Blender/build_csi_barry.py -- assemble work Assets/FlashPrototype/Character/Barry/BarryAllen.fbx
 ```
 
-then copy `work/{Body,Shirt,Hair,Shoes,Watch}.png` to `Character/Barry/Textures/Barry_<name>.png` and run **Flash → Configure Barry Allen**. `Male_07.obj` is inside `source/Male_07.zip` in the supplied `male-skinny-base-mesh.zip`.
+then copy `work/{Body,Shirt,Tee,Jeans,Hair,Shoes,Watch}.png` to `Character/Barry/Textures/Barry_<name>.png`, `work/NPC_{Body_Light,Body_Tan,Body_Dark,Body_Masked,Pants,Hair}.png` and `work/Jacket.png` to `Character/Barry/Townsperson/Townsperson_<name>.png`, and run **Flash → Configure Barry Allen** (it also builds `Resources/Townsperson.prefab`). `Male_07.obj` is inside `source/Male_07.zip` in the supplied `male-skinny-base-mesh.zip`.

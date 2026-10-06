@@ -24,6 +24,7 @@ namespace FlashGame
         BotDirector bots;
         EmergencyDirector emergencies;
         SpeedForcePowers powers;
+        Pedestrians pedestrians;
         float downTimer, noticeTimer;
         string notice;
         bool paused, perception, trailsEnabled = true, showHelp = true;
@@ -90,6 +91,8 @@ namespace FlashGame
             powers = player.AddComponent<SpeedForcePowers>();
             bots = BotDirector.Create(transform, runner, powers.Vitals, fx);
             emergencies = EmergencyDirector.Create(transform, world, fx);
+            emergencies.Bots = bots; emergencies.Player = runner.transform; emergencies.PlayerHand = () => visual.HandPosition(true);
+            pedestrians = Pedestrians.Create(transform, runner.transform);
             powers.Init(runner, visual, followCamera, fx, bots, emergencies, vortices);
             powers.Downed += () => { downTimer = 2.5f; Notice("DOWN \u2022 returning to S.T.A.R. Labs", 2.5f); };
             runner.Events += (e, at) => { if (e == MotorEvent.Sank) Sank(); };
@@ -123,6 +126,7 @@ namespace FlashGame
             powers.Tick(input, dt, worldScale);
             bots.Tick(dt, worldScale);
             emergencies.Tick(dt, worldScale);
+            pedestrians.Tick(dt, worldScale, runner.Speed);
             fx.SetWorldSpeed(worldScale);
             noticeTimer = Mathf.Max(0, noticeTimer - dt);
             if (downTimer > 0 && (downTimer -= dt) <= 0)
@@ -162,6 +166,7 @@ namespace FlashGame
             if (!value) controllerPanel = false;
             if (visual != null) visual.SetPaused(value);
             if (bots != null) bots.SetPaused(value);
+            if (pedestrians != null) pedestrians.SetPaused(value);
             if (fx != null) fx.SetWorldSpeed(value ? 0 : 1);
             if (paused) perception = false;
             Cursor.lockState = paused ? CursorLockMode.None : CursorLockMode.Locked;

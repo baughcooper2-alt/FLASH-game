@@ -464,6 +464,8 @@ namespace FlashGame
                     emergencies.StartAssembly((Assembly)context.Target);
                     sequence = Sequence.Assembly; seqObject = context.Target; seqCentre = context.Position; seqTimer = 0; motor.Locked = true;
                     Say(context.Kind == ContextKind.Repair ? "RAPID REPAIR" : "RAPID CONSTRUCTION", 1.4f); break;
+                case ContextKind.GrabBomb: emergencies.GrabBomb(); Say("GOT THE BOMB • get it to deep water", 2); break;
+                case ContextKind.DropBomb: emergencies.DropBomb(); Say("BOMB DROPPED", 1.2f); break;
                 case ContextKind.ClearAir:
                 {
                     if (!Pay(15)) return;

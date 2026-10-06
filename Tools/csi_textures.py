@@ -8,7 +8,7 @@ thin-plate spline through matching landmarks (eye corners, brows, nose, mouth, c
 with the render's one-sided lighting evened out. Skin, hair, denim, plaid and shoe colours were sampled from the
 same reference; the fabrics are generated so they stay clean at any distance.
 """
-import json, os, sys
+import gc, json, os, sys
 import numpy as np
 from PIL import Image, ImageFilter
 
@@ -100,9 +100,12 @@ K = U(((src[:, None] - src[None]) ** 2).sum(-1)); Pm = np.hstack([np.ones((n, 1)
 A = np.zeros((n + 3, n + 3)); A[:n, :n] = K + np.eye(n) * 1e-9; A[:n, n:] = Pm; A[n:, :n] = Pm.T
 coef = np.linalg.solve(A, np.vstack([dst, np.zeros((3, 2))]))
 def warp(q):
-    """Model (x, z) -> reference pixel (x, y)."""
+    """Model (x, z) -> reference pixel (x, y). Evaluated in chunks: all texels at once needs gigabytes."""
     shape = q.shape[:-1]; q = q.reshape(-1, 2).astype(np.float64)
-    out = U(((q[:, None] - src[None]) ** 2).sum(-1)) @ coef[:n] + np.hstack([np.ones((len(q), 1)), q]) @ coef[n:]
+    out = np.empty_like(q)
+    for i in range(0, len(q), 65536):
+        c = q[i:i + 65536]
+        out[i:i + 65536] = U(((c[:, None] - src[None]) ** 2).sum(-1)) @ coef[:n] + np.hstack([np.ones((len(c), 1)), c]) @ coef[n:]
     return out.reshape(*shape, 2)
 
 FACE_BOX = (1170, 0, 1390, 260)
@@ -144,62 +147,163 @@ def hairline(x, y, z):
     ear = smooth((np.abs(x) - .06) / .015) * np.exp(-((y - info["ear_y"]) / .03) ** 4)
     return front * (1 - side) + sides * side + .006 * ear
 
-# --- Body: skin, face, tee, jeans --------------------------------------------------------------
-P, N, M = raster("Body", 2048)
-x, y, z = P[..., 0], P[..., 1], P[..., 2]
-grain = fbm(P * 140)[..., None]
-img = SKIN * (.95 + .1 * grain) * np.ones_like(P)
-img = mix(img, img * rgb(1.04, .93, .92), smooth((np.abs(x) - .7) / .1))           # warmer fingers
-img = mix(img, img * rgb(1.02, .9, .9), smooth((np.abs(x) - .079) / .01) * (z > 1.65))  # ears
-# Face: the warped reference, faded out toward the sides of the head and below the chin.
-facing = smooth((-N[..., 1] - .3) / .35)                                             # no smearing at grazing angles
-oval = smooth((1 - ((x / .078) ** 2 + ((z - 1.69) / .12) ** 2)) / .3) * smooth((z - 1.588) / .015)
-w = facing * oval * (z > 1.5) * (1 - smooth((z - 1.75) / .02))
-proj = sample(face, warp(np.stack([x, z], -1)), FACE_BOX)
-# Rebuild the face on the skin colour so there is no seam: keep the reference's shading as a luminance ratio
-# (highlights soft-clipped so they cannot wash out) and a damped share of its colour variation (lips, brows,
-# stubble). Scaling each channel to the skin instead lifted green and blue 1.6x and bleached the highlights.
-sel = w > .5
-L = proj @ np.array([.3, .59, .11], np.float32)
-d = L / L[sel].mean()
-d = np.where(d > 1, 1 + .45 * np.tanh((d - 1) / .45), d ** .9)[..., None]
-tint = (proj / np.maximum(L, 1e-3)[..., None]) / (proj[sel].mean(0) / L[sel].mean())
-proj = np.clip(SKIN * d * tint ** .6, 0, 1)
-img = mix(img, proj, w)
-# Eyes: clean whites, blue-grey irises with a dark rim, black pupils, centred on each eyeball's front.
+# --- Body: skin and face ------------------------------------------------------------------------
+# The tee and jeans are separate garments now; the skin under them was removed, and what is left near their edges is
+# painted to match so no gap shows. paint_body() also makes the townspeople: generic faces in other skin tones, and
+# a knitted ski mask for robbers.
 eyes = json.load(open(os.path.join(WORK, "layers.json")))["eyes"]
-eyeball = raster.part == 1
-for c in eyes.values():
-    d = np.hypot(x - c[0], z - c[2])
-    near = eyeball & (np.abs(x - c[0]) < .016)
-    iris = smooth((.0058 - d) / .0008)
-    lid = smooth((z - c[2] - .004) / .005)[..., None]                                    # upper-lid shadow
-    col = mix(rgb(.8, .78, .76), rgb(.3, .39, .48) * (.75 + .4 * vnoise(P * 4000)[..., None]), iris) * (1 - .35 * lid)
-    col = mix(col, rgb(.12, .15, .2), np.exp(-((d - .0056) / .0006) ** 2) * .8)
-    col = mix(col, rgb(.02, .02, .025), smooth((.0024 - d) / .0004))
-    img[near] = col[near]
-# Scalp under the hair, fading out just below the hairline so the hair edge reads soft.
-under = smooth((z - hairline(x, y, z) + .008) / .012) * (z > 1.6) * (np.abs(x) < .11)
-img = mix(img, HAIR * (.85 + .3 * fbm(P * 600)[..., None]), under * .92)
-# White crew-neck tee on the torso and upper arms.
-neckline = 1.535 - .022 * smooth(-N[..., 1])
-tee = (z > .93) & (z < neckline) & (np.abs(x) < .34)
-tee_col = rgb(.9, .9, .88) * (.94 + .1 * fbm(P * 220)[..., None])
-img[tee] = tee_col[tee]
-img[tee & (z > neckline - .012)] *= .93                                              # ribbed collar
-# Jeans: dark indigo denim, faded on the thigh fronts and knees, darker in the creases.
-legs = (z <= .93) & (z > .07)
-twill = vnoise(np.stack([(x + z) * 900, (y + z) * 900, z * 300], -1))
-fade = smooth(-N[..., 1]) * (smooth((z - .45) / .1) * (1 - smooth((z - .88) / .06)) * .55 + .25 * np.exp(-((z - .5) / .05) ** 2))
-crease = smooth(N[..., 1]) * np.exp(-((z - .48) / .04) ** 2)                         # behind the knees
-denim = rgb(.09, .15, .27) * (.85 + .3 * twill[..., None]) * (.9 + .2 * fbm(P * 40)[..., None])
-denim = mix(denim, rgb(.2, .3, .46), fade * .8)
-denim *= (1 - .25 * crease)[..., None]
-waistband = (z > .895) & legs
-denim[waistband] *= .85
-img[legs] = denim[legs]
-img[z <= .07] = rgb(.06, .06, .07)                                                     # socks, under the shoes
+G = json.load(open(os.path.join(WORK, "layers.json")))["garments"]
+def paint_body(skin, face="barry", hair=HAIR, size=2048, iris=rgb(.3, .39, .48), stubble=0.0):
+    P, N, M = raster("Body", size)
+    x, y, z = P[..., 0], P[..., 1], P[..., 2]
+    grain = fbm(P * 140)[..., None]
+    img = skin * (.95 + .1 * grain) * np.ones_like(P)
+    img = mix(img, img * rgb(1.04, .93, .92), smooth((np.abs(x) - .7) / .1))                # warmer fingers
+    img = mix(img, img * rgb(1.02, .9, .9), smooth((np.abs(x) - .079) / .01) * (z > 1.65))  # ears
+    front = smooth((-N[..., 1] - .3) / .35)                                                # no smearing at grazing angles
+    if face == "barry":
+        # The warped reference, faded out toward the sides of the head and below the chin. It is rebuilt on the
+        # skin colour so there is no seam: the reference's shading as a luminance ratio (highlights soft-clipped so
+        # they cannot wash out) and a damped share of its colour variation (lips, brows, stubble). Scaling each
+        # channel to the skin instead lifted green and blue 1.6x and bleached the highlights.
+        oval = smooth((1 - ((x / .078) ** 2 + ((z - 1.69) / .12) ** 2)) / .3) * smooth((z - 1.588) / .015)
+        w = front * oval * (z > 1.5) * (1 - smooth((z - 1.75) / .02))
+        proj = np.zeros_like(P)
+        on = w > 0
+        proj[on] = sample(face_img, warp(np.stack([x[on], z[on]], -1)), FACE_BOX)
+        sel = w > .5
+        L = proj @ np.array([.3, .59, .11], np.float32)
+        d = L / L[sel].mean()
+        d = np.where(d > 1, 1 + .45 * np.tanh((d - 1) / .45), d ** .9)[..., None]
+        tint = (proj / np.maximum(L, 1e-3)[..., None]) / (proj[sel].mean(0) / L[sel].mean())
+        img = mix(img, np.clip(skin * d * tint ** .6, 0, 1), w)
+    else:
+        # A generic face on the same head: soft socket shading, brows, lips, and optional stubble.
+        on_face = front * (z > 1.58) * (z < 1.76) * (np.abs(x) < .075)
+        for sx in (-1, 1):
+            ex, ez = sx * .029, 1.714
+            socket = np.exp(-(((x - ex) / .022) ** 2 + ((z - ez) / .012) ** 2))
+            img *= (1 - .12 * socket * on_face)[..., None]
+            bx = sx * .041; arch = 1.7275 + .003 * (1 - np.clip((x - bx) / .022, -1, 1) ** 2)
+            brow = smooth((.0026 - np.abs(z - arch)) / .0012) * smooth((.023 - np.abs(x - bx)) / .004)
+            img = mix(img, hair * (.8 + .4 * vnoise(P * 3000)[..., None]), brow * on_face * .9)
+        lips = smooth(1 - (x / .024) ** 2 - ((z - 1.6415) / np.where(z > 1.6415, .005, .0068)) ** 2) * on_face
+        img = mix(img, img * rgb(.92, .66, .64), lips * .85)
+        if stubble > 0:
+            jaw = on_face * smooth((1.655 - z) / .02) * smooth((z - 1.585) / .01) * (1 - lips)
+            img = mix(img, img * .72, jaw * stubble * (.6 + .4 * vnoise(P * 2500)))
+    # Eyes: clean whites, irises with a dark rim, black pupils, centred on each eyeball's front.
+    eyeball = raster.part == 1
+    for c in eyes.values():
+        d = np.hypot(x - c[0], z - c[2])
+        near = eyeball & (np.abs(x - c[0]) < .016)
+        ring = smooth((.0058 - d) / .0008)
+        # Off-white sclera, pinker toward the corners, shaded by the upper lid and a little by the lower one.
+        corner = smooth((np.abs(x - c[0]) - .006) / .007)[..., None]
+        lid = (smooth((z - c[2] - .0025) / .0045) * .55 + smooth((c[2] - z - .004) / .004) * .3)[..., None]
+        sclera = mix(rgb(.73, .7, .68), rgb(.7, .56, .54), corner[..., 0] * .6)
+        col = mix(sclera, iris * (.75 + .4 * vnoise(P * 4000)[..., None]), ring) * (1 - lid)
+        col = mix(col, rgb(.12, .15, .2), np.exp(-((d - .0056) / .0006) ** 2) * .8)
+        col = mix(col, rgb(.02, .02, .025), smooth((.0024 - d) / .0004))
+        img[near] = col[near]
+    # Scalp under the hair, fading out just below the hairline so the hair edge reads soft.
+    under = smooth((z - hairline(x, y, z) + .008) / .012) * (z > 1.6) * (np.abs(x) < .11)
+    img = mix(img, hair * (.85 + .3 * fbm(P * 600)[..., None]), under * .92)
+    if face == "mask":
+        # Black knit balaclava over the head and neck, with one opening across the eyes.
+        knit = .8 + .4 * vnoise(np.stack([x * 1800, z * 700, y * 1800], -1))[..., None]
+        head = (z > 1.53) & (np.abs(x) < .13)
+        opening = ((x / .062) ** 2 + ((z - 1.714) / .0175) ** 2 < 1) & (N[..., 1] < -.2)
+        cover = head & ~opening & ~eyeball
+        img[cover] = (rgb(.05, .05, .06) * knit)[cover]
+    # Skin left just inside the garment edges takes the garment's colour so no gap can show.
+    img[(z > .9) & (z < 1.42) & (np.abs(x) < G["tee_sleeve"])] = rgb(.86, .86, .84)
+    legs = (z <= .935) & (z > .07)
+    img[legs] = rgb(.1, .15, .25)
+    img[z <= .07] = rgb(.06, .06, .07)                                                     # socks, under the shoes
+    return img, M
+face_img = face
+img, M = paint_body(SKIN)
 save("Body", img, M)
+for name, tone, kw in (("NPC_Body_Light", rgb(.86, .68, .58), dict(iris=rgb(.32, .42, .3))),
+                       ("NPC_Body_Tan", rgb(.6, .42, .31), dict(iris=rgb(.27, .18, .1), stubble=.8)),
+                       ("NPC_Body_Dark", rgb(.36, .23, .17), dict(iris=rgb(.16, .1, .06), hair=rgb(.05, .04, .04))),
+                       ("NPC_Body_Masked", rgb(.66, .47, .37), dict(face="mask", iris=rgb(.25, .17, .1)))):
+    kw.setdefault("face", "generic")
+    img, M = paint_body(tone, size=1024, **kw)
+    save(name, img, M); del img, M; gc.collect()
+
+# --- Tee: white cotton, ribbed collar, stitched hems ---------------------------------------------
+def tee_paint(base, size):
+    P, N, M = raster("Tee", size)
+    x, y, z = P[..., 0], P[..., 1], P[..., 2]
+    col = base * (.93 + .1 * fbm(P * 220)[..., None]) * np.ones_like(P)
+    # Soft fold shading: under the arms and in loose horizontal folds over the stomach.
+    folds = .5 + .5 * np.sin(z * 90 + fbm(P * 12) * 6)
+    col *= (1 - .06 * folds * smooth((1.15 - z) / .2))[..., None]
+    col *= (1 - .12 * smooth((.03 - np.abs(np.abs(x) - G["shoulder_x"] + .02)) / .03) * smooth((1.43 - z) / .05) * (z > 1.3))[..., None]
+    neck_r = np.hypot(x, (y - G["neck_y"] + .012) / 1.15)
+    rib = (neck_r < .068 + .014) & (z > 1.47)
+    col[rib] *= (.9 + .06 * np.sin(np.arctan2(x, y) * 160))[rib][..., None]
+    hem = (z < G["tee_hem"] + .018) | (np.abs(x) > G["tee_sleeve"] - .018)
+    stitch = (np.abs(z - G["tee_hem"] - .016) < .0012) | (np.abs(np.abs(x) - G["tee_sleeve"] + .016) < .0012)
+    col[hem] *= .96; col[stitch] *= .85
+    return col, M
+col, M = tee_paint(rgb(.9, .9, .88), 1024); save("Tee", col, M)
+
+# --- Jeans: denim with seams, pockets, waistband and hems -----------------------------------------
+def jeans_paint(dark, light, size, thread=rgb(.78, .58, .26)):
+    P, N, M = raster("Jeans", size)
+    x, y, z = P[..., 0], P[..., 1], P[..., 2]
+    twill = vnoise(np.stack([(x + z) * 900, (y + z) * 900, z * 300], -1))
+    front, back = smooth((-N[..., 1] - .2) / .4), smooth((N[..., 1] - .2) / .4)
+    fade = front * (smooth((z - .45) / .1) * (1 - smooth((z - .88) / .06)) * .55 + .25 * np.exp(-((z - G["knee_z"]) / .05) ** 2))
+    crease = back * np.exp(-((z - G["knee_z"]) / .04) ** 2)                              # behind the knees
+    whisker = front * np.exp(-((z - .79) / .03) ** 2) * (.5 + .5 * np.sin(z * 420 + np.abs(x) * 60)) * smooth((np.abs(x) - .03) / .02)
+    col = dark * (.85 + .3 * twill[..., None]) * (.9 + .2 * fbm(P * 40)[..., None])
+    col = mix(col, light, np.clip(fade * .8 + whisker * .35, 0, 1))
+    col *= (1 - .25 * crease)[..., None]
+    side = np.sign(x)
+    outseam = (np.abs(N[..., 1]) < .1) & (N[..., 0] * side > .5) & (z < .86)
+    inseam = (np.abs(N[..., 1]) < .12) & (N[..., 0] * side < -.5) & (z < .76)
+    col[outseam | inseam] *= .8
+    waist = z > G["jeans_waist"] - .04
+    col[waist] *= .9
+    stitches = (np.abs(z - (G["jeans_waist"] - .04)) < .0012) | (np.abs(z - (G["jeans_waist"] - .006)) < .0012)
+    # Front pockets (curved openings) and the fly; back pockets as stitched patches.
+    t = np.clip((np.abs(x) - .06) / .07, 0, 1)
+    pocket_line = front * (np.abs(z - (G["jeans_waist"] - .04 - .065 * t ** 1.5)) < .0018) * (np.abs(x) > .06) * (np.abs(x) < .135)
+    fly = front * (np.abs(x - .028) < .0012) * (z > .8) * (z < G["jeans_waist"] - .04)
+    bx = np.abs(x) - .075
+    patch = back * (np.abs(bx) < .055) * (z > .79) * (z < .875)
+    patch_edge = patch * ((np.abs(np.abs(bx) - .05) < .0015) | (np.abs(z - .795) < .0015))
+    col[patch > .5] *= .93
+    hem = z < G["jeans_hem"] + .02
+    col[hem] *= .88
+    for m in (stitches, pocket_line > .5, fly > .5, patch_edge > .5, np.abs(z - G["jeans_hem"] - .018) < .0012):
+        col[m] = thread * (.85 + .3 * twill[m][..., None])
+    # Belt loops and the button.
+    for lx in (-.12, -.05, .05, .12):
+        col[(np.abs(x - lx) < .006) & waist & front.astype(bool)] *= .82
+    col[(np.hypot(x, z - (G["jeans_waist"] - .02)) < .006) & (front > .5)] = rgb(.62, .58, .5)
+    return col, M
+col, M = jeans_paint(rgb(.09, .15, .27), rgb(.2, .3, .46), 1024); save("Jeans", col, M)
+# Neutral twill trousers for townspeople, tinted per person in game (khaki, black, grey, navy).
+col, M = jeans_paint(rgb(.62, .62, .62), rgb(.72, .72, .72), 1024, thread=rgb(.66, .66, .66)); save("NPC_Pants", col, M)
+
+# --- Jacket: neutral fabric (tinted in game) with a zip, ribbed cuffs, hem and collar --------------
+P, N, M = raster("Jacket", 1024)
+x, y, z = P[..., 0], P[..., 1], P[..., 2]
+col = rgb(.6, .6, .6) * (.9 + .15 * fbm(P * 300)[..., None]) * np.ones_like(P)
+col *= (1 - .07 * (.5 + .5 * np.sin(z * 70 + fbm(P * 10) * 5)) * smooth((1.2 - z) / .3))[..., None]
+front = N[..., 1] < -.3
+zip_ = front & (np.abs(x) < .005)
+placket = front & (np.abs(x) < .016)
+rib = (z < G["jacket_hem"] + .05) | (np.abs(x) > G["jacket_cuff"] - .05) | (z > 1.5)
+col[rib] *= (.82 + .08 * np.sin((x + z) * 900))[rib][..., None]
+col[placket] *= .8
+col[zip_] = rgb(.42, .43, .45) * (.8 + .4 * (np.sin(z * 1400) > 0))[zip_][..., None]
+save("Jacket", col, M)
 
 # --- Shirt: blue-and-red flannel plaid ----------------------------------------------------------
 SETT = [(.00, rgb(.38, .15, .21)), (.28, rgb(.06, .03, .19)), (.31, rgb(.86, .87, .95)), (.34, rgb(.15, .11, .40)),
@@ -228,6 +332,7 @@ streak = fbm(np.stack([x * 700, y * 45, z * 260], -1), 4)[..., None]
 base = HAIR * (.65 + .7 * streak)
 sheen = smooth((N[..., 2] - .4) / .5)[..., None] * .25
 save("Hair", base * (1 + sheen), M)
+save("NPC_Hair", rgb(.62, .6, .58) * (.65 + .7 * streak) * (1 + sheen), M)
 
 # --- Shoes: black canvas low-tops, white rubber soles and toe caps, white laces -------------------
 P, N, M = raster("Shoes", 1024)

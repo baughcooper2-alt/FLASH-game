@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace FlashGame
 {
-    public enum ContextKind { Dig, Repair, Build, Extinguish, ClearAir }
+    public enum ContextKind { Dig, Repair, Build, Extinguish, ClearAir, GrabBomb, DropBomb }
 
     // Something the Special button does when the Flash is next to it.
     public sealed class ContextAction
@@ -119,10 +119,19 @@ namespace FlashGame
         public readonly List<Civilian> Civilians = new List<Civilian>();
         public Assembly Leak;       // a gas main that keeps feeding its cloud until repaired
         public Transform Root;
+        // Crimes (Crimes.cs): armed suspects, hostages and bystanders, a bomb, a countdown.
+        public readonly List<BotEnemy> Criminals = new List<BotEnemy>();
+        public readonly List<Townsperson> People = new List<Townsperson>();
+        public Bomb Bomb;
+        public float Timer;
+        public bool Failed;
         public bool Complete
         {
             get
             {
+                if (Failed) return false;
+                foreach (var c in Criminals) if (c != null && !c.Dead) return false;
+                if (Bomb != null && !Bomb.Defused) return false;
                 foreach (var f in Fires) if (!f.Out) return false;
                 foreach (var c in Clouds) if (!c.Clear) return false;
                 foreach (var r in Rubble) if (!r.Done) return false;
@@ -147,17 +156,23 @@ namespace FlashGame
                 if (rubble > 0) parts.Add(rubble + " trapped");
                 if (repairs > 0) parts.Add(repairs + " to repair");
                 if (builds > 0) parts.Add(builds + " to build");
+                int armed = 0;
+                foreach (var c in Criminals) if (c != null && !c.Dead) armed++;
+                if (armed > 0) parts.Add(armed + (armed == 1 ? " armed suspect" : " armed suspects"));
+                foreach (var c in Criminals) if (c != null && !c.Dead && c.Mode == BotEnemy.Role.Flee) { parts.Add("CATCH THE MUGGER"); break; }
+                if (Timer > 0 && Bomb == null) parts.Add("he snaps in " + Mathf.CeilToInt(Timer) + " s");
+                if (Bomb != null && !Bomb.Defused) parts.Add((Bomb.Carried ? "CARRYING THE BOMB • " : "BOMB • ") + "0:" + Mathf.CeilToInt(Mathf.Max(0, Bomb.Timer)).ToString("00"));
                 return string.Join("  •  ", parts);
             }
         }
     }
 
     // Rotating emergencies around the city that the environmental powers resolve.
-    public sealed class EmergencyDirector : MonoBehaviour
+    public sealed partial class EmergencyDirector : MonoBehaviour
     {
         PrototypeWorld w;
         FxSystem fx;
-        Material shirtA, shirtB, shirtC, skin, pants, charred, metal, concrete, glass, wood, blueprint, gasPipe;
+        Material shirtA, shirtB, shirtC, skin, pants, charred, metal, concrete, glass, wood, blueprint, gasPipe, blink;
         public Emergency Active { get; private set; }
         public int Saved { get; private set; }
         public int Resolved { get; private set; }
@@ -183,6 +198,7 @@ namespace FlashGame
             d.glass = world.Material("Shelter glass", new Color(.35f, .5f, .6f));
             d.wood = world.Material("Building timber", new Color(.55f, .4f, .25f));
             d.gasPipe = world.Material("Gas main yellow", new Color(.85f, .7f, .12f));
+            d.blink = world.Material("Bomb light", new Color(1, .1f, .05f), 1);
             d.blueprint = new Material(fx.Additive) { name = "Blueprint" };
             d.blueprint.SetColor("_Tint", new Color(.25f, .6f, 1, .5f)); d.blueprint.SetFloat("_Intensity", .8f); d.blueprint.SetFloat("_Softness", .3f);
             return d;
@@ -194,7 +210,12 @@ namespace FlashGame
             ("Gas leak on 2nd Street", new Vector3(-130, 0, -130)),
             ("Building collapse, East 4th", new Vector3(260, 0, -390)),
             ("Shelter needed, Market Street", new Vector3(390, 0, 0)),
+            ("Armed robbery at the Corner Mart", Vector3.zero),
+            ("Mugging at gunpoint", Vector3.zero),
+            ("Bomb threat", Vector3.zero),
         };
+        // Rescues and crimes alternate.
+        static readonly int[] Order = { 4, 0, 5, 1, 6, 2, 4, 3, 5 };
 
         public void Tick(float dt, float timeScale)
         {
@@ -203,7 +224,7 @@ namespace FlashGame
             if (bannerTimer <= 0) Banner = null;
             if (Active == null)
             {
-                if (Enabled && clock >= nextAt) Begin(next++ % Sites.Length);
+                if (Enabled && clock >= nextAt) Begin(Order[next++ % Order.Length]);
                 return;
             }
             float world = dt * timeScale;
@@ -230,6 +251,7 @@ namespace FlashGame
                         3.2f * Mathf.Lerp(.5f, 1, c.Density), c.Colour * new Color(1, 1, 1, c.Density), 3);
                 }
             }
+            TickCrime(e, dt, world);
             foreach (var a in e.Repairs) Animate(a, dt, false);
             foreach (var a in e.Builds) Animate(a, dt, true);
             bool calm = true;
@@ -241,14 +263,19 @@ namespace FlashGame
                 civ.State = e.Complete ? Civilian.Mood.Cheering : calm ? Civilian.Mood.Waiting : Civilian.Mood.Distressed;
                 civ.Tick(clock);
             }
-            if (e.Complete)
+            if (e.Complete || e.Failed)
             {
-                Saved += e.Civilians.Count; Resolved++;
-                Banner = "EMERGENCY RESOLVED • " + e.Civilians.Count + " civilians safe";
-                bannerTimer = 6;
+                int safe = e.Civilians.Count + e.People.Count;
+                if (e.Complete)
+                {
+                    Saved += safe; Resolved++;
+                    Banner = (e.Criminals.Count > 0 ? "CRIME STOPPED • " : e.Bomb != null ? "CITY SAFE • " : "EMERGENCY RESOLVED • ") + safe + " civilians safe";
+                    bannerTimer = 6;
+                }
                 var root = e.Root;
                 Active = null; nextAt = clock + 18;
                 Destroy(root.gameObject, 12);
+                foreach (var c in e.Criminals) if (c != null) Destroy(c.gameObject, 12);
             }
         }
 
@@ -309,6 +336,12 @@ namespace FlashGame
             foreach (var a in Active.Builds) if (a.Progress < 0) Consider(ContextKind.Build, "RAPID CONSTRUCTION • " + a.Name, a.Position, a);
             foreach (var f in Active.Fires) if (!f.Out) Consider(ContextKind.Extinguish, "EXTINGUISH • hold to blast with wind", f.Position, f);
             foreach (var c in Active.Clouds) if (!c.Clear) Consider(ContextKind.ClearAir, "REVERSE TORNADO • pull the cloud away", c.Centre, c);
+            var bomb = Active.Bomb;
+            if (bomb != null && !bomb.Defused && !bomb.Exploded)
+            {
+                if (bomb.Carried) return new ContextAction { Kind = ContextKind.DropBomb, Label = DeepWater(p) ? "DROP THE BOMB • deep water here" : "DROP THE BOMB • get it past the sea wall first", Position = p, Target = bomb };
+                Consider(ContextKind.GrabBomb, "GRAB THE BOMB", bomb.Root.position, bomb);
+            }
             return best;
         }
 
@@ -375,6 +408,9 @@ namespace FlashGame
             e.Root.SetParent(transform, false);
             switch (index)
             {
+                case 4: BeginRobbery(e); break;
+                case 5: BeginMugging(e); break;
+                case 6: BeginBomb(e); break;
                 case 0:
                     e.Instructions = "Smother the flames: Tornado Arms, Vacuum Blast, or run circles to make a tornado. Then clear the smoke.";
                     Wreck(e, p + new Vector3(-4, 0, 3), 25); Wreck(e, p + new Vector3(5, 0, -2), -60);
@@ -396,7 +432,7 @@ namespace FlashGame
                     e.Rubble.Add(Pile(e, p + new Vector3(7, 0, 6)));
                     e.Repairs.Add(Shelter(e, p + new Vector3(0, 0, -8), "bus shelter", false));
                     break;
-                default:
+                case 3:
                     e.Instructions = "Rapid-construct an emergency shelter for the waiting civilians.";
                     e.Builds.Add(Shelter(e, p + new Vector3(0, 0, 4), "emergency shelter", true));
                     for (int i = 0; i < 4; i++) Person(e, p + new Vector3(-6 + i * 1.5f, 0, -3));
