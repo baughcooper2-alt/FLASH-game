@@ -4,9 +4,11 @@ namespace FlashGame
 {
     // A suit palette for the realistic Flash model. Colours are sRGB. A clear Legs, Cowl, Boots or Seams colour
     // means "inherit" (Suit, Suit, Legs and Trim respectively); Cover paints over the face and eyes for full masks.
+    // A look with a Character is Barry out of costume instead: that prefab replaces the suited model (only the
+    // lightning colours apply).
     public sealed class FlashSkin
     {
-        public string Name, Source;
+        public string Name, Source, Character;
         public Color Suit, Legs, Cowl, Boots, Trim, Seams, EmblemField, EmblemBolt, Cover, Glow, Core;
         public float BootsMetal;
         public Color LegsOrSuit => Legs.a > 0 ? Legs : Suit;
@@ -81,6 +83,14 @@ namespace FlashGame
                 new Color(1, .7f, .2f), new Color(1, .97f, .85f), legs: "#ECEAE4", boots: "#B8141B"),
             Skin("Negative Flash", "Comics \u2022 Negative Speed Force", "#121214", "#9E1016", "#121214", "#C4141C",
                 new Color(1, .05f, .08f), new Color(1, .55f, .55f), cowl: "#1A1A1D"),
+            // Barry Allen out of costume (Character/Barry, built from the user's base mesh and CSI design).
+            Civilian("Barry Allen", "Out of costume \u2022 tee, jeans and sneakers", "BarryAllen"),
+            Civilian("CSI Barry", "Out of costume \u2022 CCPD forensics, plaid overshirt", "CSIBarry"),
+        };
+        static FlashSkin Civilian(string name, string source, string character) => new FlashSkin
+        {
+            Name = name, Source = source, Character = character, Suit = C("#2B3A55"), Trim = C("#D9DCE0"),
+            EmblemField = Color.white, EmblemBolt = Color.white, Glow = BarryGlow, Core = BarryCore,
         };
 
         public static int Saved

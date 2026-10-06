@@ -165,6 +165,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   prototypeShader: {fileID: 4800000, guid: 4e8232a86fd0597eb7582c0777f188ba, type: 3}
   characterPrefab: {fileID: 1478800044828462371, guid: 212af6c6fad7c41cfa3f859543776f3f, type: 3}
+  civilianPrefabs:
+  - {fileID: 8681884269821839814, guid: 7fc1b11511dac410c8678c1654860f81, type: 3}
+  - {fileID: 6847976168922320782, guid: 69baacbee7e344abb8bcc30c6314fdc7, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

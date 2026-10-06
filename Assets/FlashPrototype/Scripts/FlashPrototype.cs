@@ -10,6 +10,8 @@ namespace FlashGame
     {
         [SerializeField] Shader prototypeShader;
         [SerializeField] GameObject characterPrefab;
+        // Barry Allen out of costume (BarryAllen, CSIBarry); set by Flash > Configure Barry Allen.
+        [SerializeField] GameObject[] civilianPrefabs;
         RunnerInput input;
         PrototypeWorld world;
         SpeedsterMotor runner;
@@ -64,7 +66,7 @@ namespace FlashGame
             runner = player.AddComponent<SpeedsterMotor>();
             runner.Respawn(spawn);
             visual = player.AddComponent<RunnerVisual>();
-            visual.Build(world, characterPrefab);
+            visual.Build(world, characterPrefab, civilianPrefabs);
             var cameraObject = new GameObject("Main Camera");
             cameraObject.transform.SetParent(transform, false);
             cameraObject.tag = "MainCamera";
@@ -101,7 +103,7 @@ namespace FlashGame
             fps = Mathf.Lerp(fps, 1f / Mathf.Max(0.001f, Time.unscaledDeltaTime), 0.06f);
             if (paused)
             {
-                // Suit picker: the speed buttons (Q / E, LB / RB) or the D-pad cycle suits while paused.
+                // Look picker: the speed buttons (Q / E, LB / RB) or the D-pad cycle suits and Barry's outfits while paused.
                 var pad = Gamepad.current;
                 if (!controllerPanel && (input.Faster.WasPressedThisFrame() || pad != null && pad.dpad.right.wasPressedThisFrame)) ChangeSuit(1);
                 if (!controllerPanel && (input.Slower.WasPressedThisFrame() || pad != null && pad.dpad.left.wasPressedThisFrame)) ChangeSuit(-1);
@@ -258,7 +260,7 @@ namespace FlashGame
                     "LMB / X           Punch (hold: rapid)   RMB / B   Lightning (hold: slam)\n" +
                     "V / R3             Afterimages      G / Y       Special or context\n" +
                     "Z, X / D-pad     Pick special      F / RT       Speed perception\n" +
-                    "R / View          Return to lab    Esc / Menu  Pause, suits\n" +
+                    "R / View          Return to lab    Esc / Menu  Pause, suits, Barry\n" +
                     "Run circles: tornado  •  Over water above 24 m/s  •  Jump into ceilings", small);
             }
             var flash = fx.FlashAmount;
@@ -374,13 +376,13 @@ namespace FlashGame
             showHelp = GUILayout.Toggle(showHelp, "  Show controls");
             GUILayout.Space(12);
             var skin = FlashSkins.All[visual.Skin];
-            GUILayout.Label("SUIT  " + (visual.Skin + 1) + " / " + FlashSkins.All.Length, small);
+            GUILayout.Label((skin.Character != null ? "BARRY  " : "SUIT  ") + (visual.Skin + 1) + " / " + FlashSkins.All.Length, small);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("\u25C4", GUILayout.Width(44), GUILayout.Height(48))) ChangeSuit(-1);
             GUILayout.Label("<b>" + skin.Name + "</b>\n" + skin.Source, suitStyle, GUILayout.Height(48));
             if (GUILayout.Button("\u25BA", GUILayout.Width(44), GUILayout.Height(48))) ChangeSuit(1);
             GUILayout.EndHorizontal();
-            GUILayout.Label("Q / E, LB / RB or D-pad change suits while paused", small);
+            GUILayout.Label("Q / E, LB / RB or D-pad change suits (and Barry out of costume) while paused", small);
             GUILayout.Space(12);
             if (GUILayout.Button("Connect / test controller", GUILayout.Height(36))) controllerPanel = true;
             if (GUILayout.Button("Resume (Esc / Menu)", GUILayout.Height(36))) SetPaused(false);

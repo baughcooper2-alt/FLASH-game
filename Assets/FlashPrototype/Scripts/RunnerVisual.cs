@@ -15,54 +15,43 @@ namespace FlashGame
         Animator animator;
         SpeedsterMotor motor;
         SuitPainter painter;
+        GameObject flash;
+        readonly System.Collections.Generic.Dictionary<string, GameObject> civilians = new System.Collections.Generic.Dictionary<string, GameObject>();
         Material mannequinSuit, mannequinTrim;
         Move move;
         Vector3 moveTarget;
         float moveTime, moveLength, spinTime, spinLength, spinTurns, flinch, windmill, bank, lastYaw;
-        bool windmilling;
+        bool windmilling, paused;
         public int Skin { get; private set; }
         public SkinnedMeshRenderer SkinnedMesh { get; private set; }
         public Color LightningGlow => lightning.Glow;
         public bool Overcharged { get => lightning.Overcharged; set => lightning.Overcharged = value; }
 
-        public void SetPaused(bool paused) { if (animator != null) animator.speed = paused ? 0 : 1; }
-        public void Build(PrototypeWorld world, GameObject characterPrefab = null)
+        public void SetPaused(bool value) { paused = value; if (animator != null) animator.speed = paused ? 0 : 1; }
+        // characterPrefab is the suited Flash; civilianPrefabs are Barry out of costume, picked by looks whose
+        // Character names the prefab. Every body is built up front and the active one swaps with the look.
+        public void Build(PrototypeWorld world, GameObject characterPrefab = null, GameObject[] civilianPrefabs = null)
         {
             motor = GetComponent<SpeedsterMotor>();
             if (characterPrefab != null)
             {
-                var character = Instantiate(characterPrefab, transform, false);
-                character.name = "Flash - animated character";
-                torso = character.transform;
-                animator = character.GetComponentInChildren<Animator>();
-                SkinnedMesh = character.GetComponentInChildren<SkinnedMeshRenderer>();
-                if (animator != null) animator.applyRootMotion = false;
                 BuildTrails(world.Material("Speed lightning", new Color(1, 0.66f, 0.12f), 0.6f));
-                if (animator != null && animator.isHuman)
-                {
-                    var anchors = new System.Collections.Generic.List<Transform>();
-                    foreach (var bone in ArcBones)
-                        if (animator.GetBoneTransform(bone) is Transform t) anchors.Add(t);
-                    lightning.SetAnchors(anchors.ToArray());
-                    rUpper = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
-                    rLower = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
-                    rHand = animator.GetBoneTransform(HumanBodyBones.RightHand);
-                    lUpper = animator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
-                    lLower = animator.GetBoneTransform(HumanBodyBones.LeftLowerArm);
-                    lHand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
-                    rThigh = animator.GetBoneTransform(HumanBodyBones.RightUpperLeg);
-                    rShin = animator.GetBoneTransform(HumanBodyBones.RightLowerLeg);
-                    rFoot = animator.GetBoneTransform(HumanBodyBones.RightFoot);
-                    lToes = animator.GetBoneTransform(HumanBodyBones.LeftToes);
-                    rToes = animator.GetBoneTransform(HumanBodyBones.RightToes);
-                    lToesRest = BindRotation(SkinnedMesh, lToes); rToesRest = BindRotation(SkinnedMesh, rToes);
-                    chest = animator.GetBoneTransform(HumanBodyBones.Chest);
-                    if (chest == null) chest = animator.GetBoneTransform(HumanBodyBones.Spine);
-                }
-                painter = character.AddComponent<SuitPainter>();
+                flash = Instantiate(characterPrefab, transform, false);
+                flash.name = "Flash - animated character";
+                painter = flash.AddComponent<SuitPainter>();
                 painter.Collect();
+                if (civilianPrefabs != null)
+                    foreach (var prefab in civilianPrefabs)
+                    {
+                        if (prefab == null) continue;
+                        var civilian = Instantiate(prefab, transform, false);
+                        civilian.name = prefab.name;
+                        civilian.SetActive(false);
+                        civilians[prefab.name] = civilian;
+                    }
+                Use(flash);
                 SetSkin(FlashSkins.Saved);
-                foreach (var child in GetComponentsInChildren<Transform>()) child.gameObject.layer = 2;
+                foreach (var child in GetComponentsInChildren<Transform>(true)) child.gameObject.layer = 2;
                 return;
             }
             var red = world.Material("Runner burgundy", new Color(0.48f, 0.025f, 0.045f));
@@ -101,9 +90,52 @@ namespace FlashGame
         {
             Skin = FlashSkins.Wrap(index);
             var skin = FlashSkins.All[Skin];
-            if (painter != null) painter.Apply(Skin);
+            var civilian = skin.Character != null && civilians.TryGetValue(skin.Character, out var c) ? c : null;
+            if (flash != null) Use(civilian != null ? civilian : flash);
+            if (painter != null && civilian == null) painter.Apply(Skin);
             if (mannequinSuit != null) { mannequinSuit.SetColor("_BaseColor", skin.Suit); mannequinTrim.SetColor("_BaseColor", skin.Trim); }
             lightning.SetColors(skin.Glow, skin.Core);
+        }
+        // Makes a character the visible, animated body: its bones drive the power poses and anchor the lightning.
+        void Use(GameObject character)
+        {
+            if (torso == character.transform) return;
+            if (torso != null)
+            {
+                character.transform.localPosition = torso.localPosition;
+                character.transform.localRotation = torso.localRotation;
+                torso.gameObject.SetActive(false);
+            }
+            character.SetActive(true);
+            torso = character.transform;
+            animator = character.GetComponentInChildren<Animator>();
+            // Barry's clothes are separate meshes; afterimages trace his body.
+            SkinnedMesh = null;
+            foreach (var mesh in character.GetComponentsInChildren<SkinnedMeshRenderer>())
+                if (SkinnedMesh == null || mesh.name == "Body") SkinnedMesh = mesh;
+            rUpper = null;
+            if (animator == null) return;
+            animator.applyRootMotion = false;
+            animator.speed = paused ? 0 : 1;
+            if (!animator.isHuman) return;
+            var anchors = new System.Collections.Generic.List<Transform>();
+            foreach (var bone in ArcBones)
+                if (animator.GetBoneTransform(bone) is Transform t) anchors.Add(t);
+            lightning.SetAnchors(anchors.ToArray());
+            rUpper = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
+            rLower = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
+            rHand = animator.GetBoneTransform(HumanBodyBones.RightHand);
+            lUpper = animator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
+            lLower = animator.GetBoneTransform(HumanBodyBones.LeftLowerArm);
+            lHand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
+            rThigh = animator.GetBoneTransform(HumanBodyBones.RightUpperLeg);
+            rShin = animator.GetBoneTransform(HumanBodyBones.RightLowerLeg);
+            rFoot = animator.GetBoneTransform(HumanBodyBones.RightFoot);
+            lToes = animator.GetBoneTransform(HumanBodyBones.LeftToes);
+            rToes = animator.GetBoneTransform(HumanBodyBones.RightToes);
+            lToesRest = BindRotation(SkinnedMesh, lToes); rToesRest = BindRotation(SkinnedMesh, rToes);
+            chest = animator.GetBoneTransform(HumanBodyBones.Chest);
+            if (chest == null) chest = animator.GetBoneTransform(HumanBodyBones.Spine);
         }
         // Where the Speed Force arcs jump from and to.
         static readonly HumanBodyBones[] ArcBones = {

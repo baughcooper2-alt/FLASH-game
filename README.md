@@ -10,7 +10,7 @@ Unity **6000.0.32f1** · URP **17.0.3** · Input System **1.14.2**
 4. Open **Assets/Scenes/FlashPrototype.unity** in the Project window.
 5. Press **Play**, then click the Game view if it does not have focus.
 
-The district, runner and HUD are created when Play starts. The scene intentionally contains only its bootstrap component before Play. No dragging scripts onto objects or manual input wiring is required. The original SampleScene is preserved.
+The district, runner and HUD are created when Play starts. The scene intentionally contains only its bootstrap component before Play. No dragging scripts onto objects or manual input wiring is required.
 
 ## Controls
 
@@ -29,7 +29,7 @@ The district, runner and HUD are created when Play starts. The scene intentional
 | Speed perception | Hold F | Hold RT |
 | Start / restart circuit | T | D-pad up |
 | Return to S.T.A.R. Labs | R | View |
-| Pause, suits (Q/E, LB/RB or D-pad while paused) | Esc | Menu |
+| Pause, suits and Barry out of costume (Q/E, LB/RB or D-pad while paused) | Esc | Menu |
 
 ## What is implemented
 
@@ -41,7 +41,7 @@ The district, runner and HUD are created when Play starts. The scene intentional
 
 **Enemies.** The supplied enemy bot, rigged as a Humanoid and animated with its own walk plus shared stand and run clips. Strikers brawl, Gunners keep their distance and fire bolts, Heavies hit hard and resist knockback. Waves warp in at rotating city sites. Health regenerates when out of combat; the Speed Force meter fills with speed and pays for powers.
 
-**Character and look.** Realistic Flash (the supplied high-detail model, rigged in Blender) using the supplied Mixamo run; 20 suits including Barry's Seasons 1 to 9 (gold boots from Season 8), Reverse-Flash, Zoom, Kid Flash, Jesse Quick, XS, Godspeed and comics suits; Speed Force lightning in each suit's colour with bloom. S.T.A.R. Labs, the 1.56 km waterfront city, traffic, a nine-gate circuit and the controller panel are unchanged.
+**Character and look.** Realistic Flash (the supplied high-detail model, rigged in Blender) using the supplied Mixamo run; 20 suits including Barry's Seasons 1 to 9 (gold boots from Season 8), Reverse-Flash, Zoom, Kid Flash, Jesse Quick, XS, Godspeed and comics suits; Speed Force lightning in each suit's colour with bloom. Barry Allen out of costume is the last two looks in the same picker: **Barry Allen** (white tee, jeans, sneakers) and **CSI Barry** (open plaid overshirt and watch on top), built on the supplied skinny base mesh with the face of the Meshy CSI design; every power and the lightning work on him too. S.T.A.R. Labs, the 1.56 km waterfront city, traffic, a nine-gate circuit and the controller panel are unchanged.
 
 Speeds are 7 / 28 / 65 / 130 metres per second. “Mach” and “Speed Force” are gameplay tier names, not literal canon velocity. Top prototype speed is about 291 mph. This scale keeps turns and collision testing useful in the small district. No stamina system.
 
@@ -68,11 +68,26 @@ Combat, villains, time travel, other maps and multiplayer remain planned. They a
 - `Assets/FlashPrototype/Scripts`: input, motor, camera, procedural visuals/world, circuit and scene coordinator.
 - `Assets/FlashPrototype/Shaders`: referenced prototype shader included in builds.
 - `Assets/FlashPrototype/Tests/Editor`: fast-crossing and movement-step tests.
+- `Assets/FlashPrototype/Character`: the realistic Flash (`Realistic`), Barry Allen out of costume (`Barry`), the shared locomotion controller and clips.
+- `Tools/Blender`, `Tools/csi_textures.py`: the Blender and texture pipelines that build the characters (sources in `Tools/Blender/source`).
 - `Assets/Scenes/FlashPrototype.unity`: explicit entry scene; first in build settings.
 - `Docs/DEVELOPMENT_LOG.md`: implementation status and decisions.
 
-The district uses Unity primitives. The character and five bundled animation FBXs come from the credited HatchXR Sketchfab archive; textures are 512 px. No extra animation or import package is required.
+The district uses Unity primitives. The stand, walk and jump clips (and `Flash.fbx`, whose avatar they share) come from the credited HatchXR Sketchfab archive; the run is the supplied Mixamo clip. No extra animation or import package is required.
 
 ## Supplied character reference
 
 The user-supplied `the-flash.zip` contains a posed OBJ and textures, without a skeleton or animation clips. Its single character was extracted, the missing material definitions were reconstructed, and nine textured materials were assigned. It is displayed in the Cortex suit case and, rigged, is now the playable character. To rebuild after changing the joints, run `blender -b --python Tools/Blender/rig_flash_realistic.py`, then **Flash → Configure realistic character** in Unity.
+
+## Barry Allen out of costume
+
+`Assets/FlashPrototype/Character/Barry/BarryAllen.fbx` is the supplied skinny base mesh (1.83 m), rigged as a Humanoid, wearing the outfit and face of the Meshy "CSI" design: open plaid overshirt with rolled sleeves, white tee, dark jeans, black-and-white sneakers, a watch and short dark hair. **Flash → Configure Barry Allen** imports it, builds its materials and the two prefabs (`BarryAllen` hides the overshirt and watch, `CSIBarry` wears the full outfit) and saves them into the scene. The batch setup (`FlashRealisticSetup.ConfigureBatch`) runs it too. To rebuild the model from its sources (Blender 5.1):
+
+```
+blender -b --python Tools/Blender/rig_tpose_mesh.py -- Male_07.obj BarryBase.fbx 1.83
+blender -b --python Tools/Blender/build_csi_barry.py -- geometry BarryBase.fbx work
+python3 Tools/csi_textures.py work "Tools/Blender/source/CSI Barry reference (front).jpg"
+blender -b --python Tools/Blender/build_csi_barry.py -- assemble work Assets/FlashPrototype/Character/Barry/BarryAllen.fbx
+```
+
+then copy `work/{Body,Shirt,Hair,Shoes,Watch}.png` to `Character/Barry/Textures/Barry_<name>.png` and run **Flash → Configure Barry Allen**. `Male_07.obj` is inside `source/Male_07.zip` in the supplied `male-skinny-base-mesh.zip`.

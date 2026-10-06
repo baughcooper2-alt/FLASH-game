@@ -30,6 +30,7 @@ public static class FlashRealisticSetup
         EditorSceneManager.OpenScene("Assets/Scenes/FlashPrototype.unity");
         Configure();
         EnemyBotSetup.Configure();
+        BarrySetup.Configure();
     }
 
     // The supplied Mixamo "Running" clip replaces the run in the locomotion blend (Animations/Running.fbx).
@@ -77,11 +78,11 @@ public static class FlashRealisticSetup
         return running;
     }
 
-    // The stand, walk and jump clips share the HatchXR rig's avatar, whose reference pose has splayed legs.
+    // The stand, walk and jump clips share the HatchXR rig's avatar (Flash.fbx), whose reference pose has splayed legs.
     public static void ConfigureLegacyClips()
     {
         HumanoidTPose.Enforce(Root + "Flash.fbx");
-        foreach (var name in new[] { "stand", "walk", "run", "jumpUp", "jumpDown" })
+        foreach (var name in new[] { "stand", "walk", "jumpUp", "jumpDown" })
         {
             string path = Root + "Animations/" + name + ".fbx";
             var importer = (ModelImporter)AssetImporter.GetAtPath(path);
